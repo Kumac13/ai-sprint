@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Falling Stack – Explosive Compression</title>
+  <style>
+    :root { --bg:#0b1020; --panel:#111827; --ink:#e5e7eb; }
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--ink); font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Meiryo, sans-serif; }
+    .wrap { max-width: 1024px; margin: 0 auto; padding: 12px; }
+    .stage { position: relative; border-radius: 14px; overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.35); background:#0a0f1f; }
+    .ui { display:flex; flex-wrap:wrap; gap:10px; align-items:center; padding:10px 12px; background:var(--panel); border-radius:12px; margin-top:12px; }
+    .btn { background:#1f2937; color:#e5e7eb; border:1px solid #374151; padding:8px 12px; border-radius:10px; cursor:pointer; }
+    .btn:active { transform: translateY(1px); }
+    .hint { opacity:.75; font-size:12px; margin-top:6px; }
+    #stageHost { width:100%; height: min(70vh, 640px); position: relative; }
+    #zipEffect { position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; display:none; justify-content:center; align-items:center; background:rgba(0,0,0,0.6); }
+    .particle { position:absolute; border-radius:50%; opacity:0.8; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div id="stageHost" class="stage">
+      <div id="zipEffect"></div>
+    </div>
+
+    <div class="ui">
+      <button id="toggleRun" class="btn">一時停止</button>
+      <button id="reset" class="btn">全消去</button>
+      <button id="compress" class="btn">圧縮(zip)</button>
+    </div>
+    <div class="hint">圧縮は比喩です。全ての言語文字が中央に吸い込まれ、一定まで縮小後に爆散します。</div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/matter-js@0.20.0/build/matter.min.js"></script>
+  <script>
+    (function(){
+      const { Engine, Render, Runner, Bodies, Composite, Common, Events, Body } = Matter;
+      const host = document.getElementById('stageHost');
+      const zipEffect = document.getElementById('zipEffect');
+      const state = { engine:null, render:null, runner:null, running:true, fontPx:16, maxBodies:400 };
+      const LANGS = ['Python','Java','JavaScript','Rust','Go','C','C++','Swift','Ruby','TypeScript','Kotlin','Haskell','PHP','Perl','Scala','Elixir'];
+
+      function color(){ const p=['#a5b4fc','#fca5a5','#fdba74','#86efac','#93c5fd','#f9a8d4','#67e8f9','#fef08a']; return p[(Math.random()*p.length)|0]; }
+      function pickLang(){ return LANGS[(Math.random()*LANGS.length)|0]; }
+
+      function setup(){
+        const engine=Engine.create();
+        const rect=host.getBoundingClientRect();
+        const render=Render.create({element:host,engine,options:{width:rect.width,height:rect.height,background:'#0b1020',wireframes:false}});
+        const runner=Runner.create();
+        Engine.run(engine); Runner.run(runner,engine);
+        state.engine=engine; state.render=render; state.runner=runner;
+
+        const w=rect.width, h=rect.height, t=50;
+        const walls=[Bodies.rectangle(w/2,h+t/2,w+t*2,t,{isStatic:true,render:{fillStyle:'#111827'}}),Bodies.rectangle(-t/2,h/2,t,h*2,{isStatic:true,render:{fillStyle:'#111827'}}),Bodies.rectangle(w+t/2,h/2,t,h*2,{isStatic:true,render:{fillStyle:'#111827'}})];
+        Composite.add(engine.world,walls);
+
+        Events.on(render,'afterRender',()=>{
+          const ctx=render.context;ctx.save();ctx.textAlign='center';ctx.textBaseline='middle';
+          for(const b of Composite.allBodies(engine.world)){
+            if(!b.plugin||!b.plugin.langText)continue;
+            const f=b.plugin.fontSize||state.fontPx;
+            ctx.font=`bold ${f}px system-ui`;
+            ctx.lineWidth=4; ctx.strokeStyle='rgba(0,0,0,0.8)'; ctx.strokeText(b.plugin.langText,b.position.x,b.position.y);
+            ctx.fillStyle='#ffffff'; ctx.fillText(b.plugin.langText,b.position.x,b.position.y);
+          }
+          ctx.restore();
+        });
+
+        Render.run(render);
+        setInterval(spawnLang,400);
+      }
+
+      function spawnLang(){
+        const world=state.engine.world;
+        const rect=host.getBoundingClientRect();
+        const x=Common.random(rect.width*0.15,rect.width*0.85);
+        const y=-20;const lang=pickLang();
+        const fs=Common.random(14,24)|0;
+        const w=Math.max(40,Math.floor(fs*(0.65*lang.length+1)));
+        const h=Math.max(20,Math.floor(fs*1.6));
+        const b=Bodies.rectangle(x,y,w,h,{density:0.006,restitution:0.05,friction:0.2,render:{fillStyle:color()}});
+        b.plugin={langText:lang,fontSize:fs};
+        Composite.add(world,b);
+      }
+
+      function compressVisual(){
+        const world=state.engine.world;
+        const bodies=Composite.allBodies(world).filter(b=>b.plugin&&b.plugin.langText);
+        if(bodies.length===0)return;
+        const center={x:host.clientWidth/2,y:host.clientHeight/2};
+        zipEffect.style.display='flex';
+        zipEffect.innerHTML='';
+
+        // 吸い込み + 縮小
+        bodies.forEach((b)=>{
+          const shrink=()=>{b.plugin.fontSize*=0.92;Body.scale(b,0.92,0.92);};
+          const move=setInterval(()=>{shrink();Body.setVelocity(b,{x:(center.x-b.position.x)*0.05,y:(center.y-b.position.y)*0.05});},30);
+          setTimeout(()=>{clearInterval(move);Composite.remove(world,b);},1000+Math.random()*300);
+        });
+
+        // 元の爆散演出に戻す
+        setTimeout(()=>{
+          for(let i=0;i<120;i++){
+            const part=document.createElement('div');
+            part.className='particle';
+            const c=color();
+            part.style.background=c;
+            const size=Math.random()*10+6;
+            part.style.width=part.style.height=size+'px';
+            part.style.left=center.x+'px';
+            part.style.top=center.y+'px';
+            zipEffect.appendChild(part);
+            const dx=(Math.random()-0.5)*600;
+            const dy=(Math.random()-0.5)*600;
+            part.animate([
+              {transform:`translate(0,0) scale(1)`,opacity:1},
+              {transform:`translate(${dx}px,${dy}px) scale(${Math.random()*1.5+0.5})`,opacity:0}
+            ],{duration:1000+Math.random()*500,easing:'ease-out',fill:'forwards'});
+          }
+          setTimeout(()=>{zipEffect.style.display='none';zipEffect.innerHTML='';},1800);
+        },1200);
+      }
+
+      document.getElementById('compress').onclick=compressVisual;
+      document.getElementById('reset').onclick=()=>{const w=state.engine.world;Composite.clear(w,false);};
+      document.getElementById('toggleRun').onclick=()=>{state.running=!state.running;if(state.running){Runner.run(state.runner,state.engine);}else{Runner.stop(state.runner);}};
+      setup();
+    })();
+  </script>
+  <section style="max-width:800px;margin:40px auto;padding:20px;color:#e5e7eb;font-family:system-ui, Meiryo, sans-serif;line-height:1.8;border-top:1px solid #333;">
+    <h2 style="font-size:1.4em;margin-bottom:0.5em;">Statement｜テーマ：「圧縮」</h2>
+    <p>情報が飽和する世界で、私たちは常に「圧縮」を試みています。ここで落ちてくる言語たちは、知識・思考・コードといった形を持つ情報の断片です。それらは重力に従い、互いに衝突しながら堆積し、やがて中心へと吸い寄せられ、限界まで密度を高めます。</p>
+    <p>この作品における「圧縮」は、単なる物理的な縮小ではなく、思考の収束を意味します。散乱した概念が一つの点に集まり、情報はエネルギーへと転化する。そして臨界点を超えたとき、再び爆散し、無数の粒子として空間に拡散していく。それは、創造と破壊、秩序と混沌の循環です。</p>
+    <p>この装置は、コードという言語の身体を借りて、情報社会の呼吸を可視化する試みです。</p>
+  </section>
+</body>
+</html>
+
