@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>15:00 — Pressure Timer</title>
+  <style>
+    :root{
+      --bg:#0b1020;
+      --fg:#e6ecff;
+      --muted:#94a3b8;
+      --accent:#22c55e;
+      --warn:#facc15; /* yellow */
+      --orange:#f97316;
+      --danger:#ef4444;
+      --ring:#334155;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%;}
+    body{
+      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", "Yu Gothic", "Meiryo", sans-serif;
+      color:var(--fg); background: radial-gradient(1000px 800px at 50% 20%, #111827, var(--bg));
+      display:grid; place-items:center;
+    }
+    .wrap{ width:min(900px, 92vw); text-align:center; }
+    h1{font-size:clamp(24px, 3.5vw, 28px); font-weight:650; margin:16px 0 8px}
+    .panel{ position:relative; padding:28px; border-radius:24px; background:rgba(15,23,42,.6); box-shadow: 0 10px 40px rgba(0,0,0,.4), inset 0 0 0 1px rgba(148,163,184,.18)}
+    .display{ font-variant-numeric:tabular-nums; letter-spacing:.02em; font-size:min(18vw, 150px); line-height:1; font-weight:800; margin:16px 0 12px }
+    .ring{ --size:min(80vw, 460px); width:var(--size); height:var(--size); margin:18px auto; position:relative; filter: drop-shadow(0 0 60px rgba(239,68,68,.15)); }
+    .ring svg{width:100%; height:100%; display:block}
+    .ring .center{ position:absolute; inset:0; display:grid; place-items:center }
+    .pulse{ position:absolute; inset:-8%; border-radius:50%; border:2px solid transparent; animation: pulse 2s ease infinite; pointer-events:none }
+    @keyframes pulse{ 0%{transform:scale(.96); opacity:.6} 70%{transform:scale(1.08); opacity:.05} 100%{transform:scale(1.12); opacity:0} }
+    button{ border:none; border-radius:999px; padding:14px 22px; font-size:16px; font-weight:700; cursor:pointer; color:#0b1020; background:var(--accent); transition: transform .08s ease, box-shadow .2s ease, background .2s ease }
+    button:hover{ transform: translateY(-1px); box-shadow: 0 10px 24px rgba(34,197,94,.35)}
+    button:active{ transform: translateY(0)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>AI Sprint Timer</h1>
+    <div class="panel" id="panel">
+      <div class="ring" aria-hidden="true">
+        <svg viewBox="0 0 120 120">
+          <defs>
+            <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+              <stop id="g1" offset="0%" stop-color="var(--accent)"/>
+              <stop id="g2" offset="100%" stop-color="var(--accent)"/>
+            </linearGradient>
+          </defs>
+          <circle cx="60" cy="60" r="54" fill="none" stroke="var(--ring)" stroke-width="8"/>
+          <circle id="arc" cx="60" cy="60" r="54" fill="none" stroke="url(#grad)" stroke-width="8" stroke-linecap="round" stroke-dasharray="339.292" stroke-dashoffset="0" transform="rotate(-90 60 60)"/>
+        </svg>
+        <div class="pulse" id="pulse" style="border-color: var(--accent);"></div>
+        <div class="center">
+          <div class="display" id="display">15:00</div>
+        </div>
+      </div>
+      <button id="start">Start</button>
+    </div>
+  </div>
+
+  <audio id="beep" preload="auto">
+    <source src="data:audio/wav;base64,UklGRhQAAABXQVZFZm10IBAAAAABAAEAESsAACJWAAACABYAZGF0YQwAAAAAAP8A/wD/AP8A/wD/AP8A" type="audio/wav" />
+  </audio>
+
+<script>
+(() => {
+  const params = new URLSearchParams(location.search || (location.hash||'').replace(/^#/, ''));
+  const SPEED = Math.max(0.01, parseFloat(params.get('speed')||'1'));
+  const JUMP_S = Math.max(0, parseFloat(params.get('jump')||'0')); // 経過扱い（秒）
+  const AUTOSTART = params.get('autostart') === '1';
+
+  const DURATION = 15 * 60 * 1000; // 表示は常に15:00（デバッグ時は実時間を圧縮）
+  const display = document.getElementById('display');
+  const arc = document.getElementById('arc');
+  const g1 = document.getElementById('g1');
+  const g2 = document.getElementById('g2');
+  const pulse = document.getElementById('pulse');
+  const btn = document.getElementById('start');
+  const beep = document.getElementById('beep');
+
+  const CIRCUMFERENCE = 339.292; // 2πr = 2π×54
+  let running = false;
+  let startTime = null;
+  let elapsed = JUMP_S * 1000; // 初期経過時間（ミリ秒）
+  let rafId = null;
+
+  // Web Audio APIで心臓音を生成
+  let audioCtx = null;
+  function playHeartbeat() {
+    if (!running) return;
+
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    const now = audioCtx.currentTime;
+
+    // "lub" sound - 低音のパルス
+    const osc1 = audioCtx.createOscillator();
+    const gain1 = audioCtx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(60, now); // 低周波
+    gain1.gain.setValueAtTime(0.3, now);
+    gain1.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+    osc1.connect(gain1);
+    gain1.connect(audioCtx.destination);
+    osc1.start(now);
+    osc1.stop(now + 0.1);
+
+    // "dub" sound - さらに低く短い音
+    const osc2 = audioCtx.createOscillator();
+    const gain2 = audioCtx.createGain();
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(40, now + 0.15);
+    gain2.gain.setValueAtTime(0.25, now + 0.15);
+    gain2.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+    osc2.connect(gain2);
+    gain2.connect(audioCtx.destination);
+    osc2.start(now + 0.15);
+    osc2.stop(now + 0.22);
+  }
+
+  function formatTime(ms) {
+    const totalSec = Math.max(0, Math.ceil(ms / 1000));
+    const min = Math.floor(totalSec / 60);
+    const sec = totalSec % 60;
+    return `${min}:${sec.toString().padStart(2, '0')}`;
+  }
+
+  function updateDisplay(remaining) {
+    display.textContent = formatTime(remaining);
+    const progress = 1 - (remaining / DURATION);
+    const offset = CIRCUMFERENCE * progress;
+    arc.style.strokeDashoffset = offset;
+
+    // 色の変化とパルス速度: 残り時間の割合に応じて
+    const ratio = remaining / DURATION;
+    let color, pulseDuration;
+    if (ratio > 0.5) {
+      color = 'var(--accent)'; // 緑
+      pulseDuration = '2s'; // 通常の鼓動
+    } else if (ratio > 0.25) {
+      color = 'var(--warn)'; // 黄色
+      pulseDuration = '1.5s'; // 少し速く
+    } else if (ratio > 0.1) {
+      color = 'var(--orange)'; // オレンジ
+      pulseDuration = '1s'; // 速い鼓動
+    } else {
+      color = 'var(--danger)'; // 赤
+      pulseDuration = '0.6s'; // 心臓のような激しい鼓動
+    }
+    g1.setAttribute('stop-color', color);
+    g2.setAttribute('stop-color', color);
+    pulse.style.borderColor = color;
+    pulse.style.animationDuration = pulseDuration;
+  }
+
+  function tick() {
+    if (!running) return;
+
+    const now = performance.now();
+    const delta = (now - startTime) * SPEED;
+    elapsed += delta;
+    startTime = now;
+
+    const remaining = DURATION - elapsed;
+
+    if (remaining <= 0) {
+      elapsed = DURATION;
+      updateDisplay(0);
+      running = false;
+      btn.textContent = 'Start';
+      beep.play().catch(() => {});
+      return;
+    }
+
+    updateDisplay(remaining);
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function toggle() {
+    if (running) {
+      // 一時停止
+      running = false;
+      cancelAnimationFrame(rafId);
+      btn.textContent = 'Resume';
+    } else {
+      // 開始または再開
+      if (elapsed >= DURATION) {
+        // リセット
+        elapsed = JUMP_S * 1000;
+      }
+      running = true;
+      startTime = performance.now();
+      btn.textContent = 'Pause';
+      tick();
+    }
+  }
+
+  btn.addEventListener('click', toggle);
+
+  // パルスアニメーションのイテレーションごとに心臓音を再生
+  pulse.addEventListener('animationiteration', playHeartbeat);
+
+  // 初期表示
+  updateDisplay(DURATION - elapsed);
+
+  // 自動開始
+  if (AUTOSTART) {
+    toggle();
+  }
+})();
+</script>
+</body>
+</html>
+
