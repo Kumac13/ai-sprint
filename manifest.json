@@ -1,0 +1,21 @@
+{
+  "updated": "2025-10-18T02:17:21.991Z",
+  "total": 2,
+  "days": [
+    {
+      "number": 1,
+      "folder": "day1",
+      "url": "day1/",
+      "title": "Falling Stack – Explosive Compression",
+      "theme": "圧縮",
+      "created": "2025-10-18T01:13:41.609Z"
+    },
+    {
+      "number": 2,
+      "folder": "day2",
+      "url": "day2/",
+      "title": "15:00 — Pressure Timer",
+      "created": "2025-10-18T01:03:50.371Z"
+    }
+  ]
+}

@@ -1,0 +1,140 @@
+:root {
+  --bg: #0b1020;
+  --panel: #111827;
+  --ink: #e5e7eb;
+  --accent: #a5b4fc;
+  --border: #333;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Meiryo, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  line-height: 1.6;
+  min-height: 100vh;
+}
+
+.showcase-header {
+  text-align: center;
+  padding: 3rem 1rem 2rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.showcase-header h1 {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+}
+
+.tagline {
+  color: #9ca3af;
+  font-size: 1.125rem;
+  margin-bottom: 1rem;
+}
+
+.challenge-count {
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 0.9375rem;
+}
+
+.showcase-grid {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  display: grid;
+  gap: 2rem;
+}
+
+.challenge-card {
+  display: block;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  padding: 1.5rem;
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.challenge-card:hover {
+  background: #1a2332;
+}
+
+.challenge-card.latest {
+  border-left: 3px solid var(--accent);
+}
+
+.challenge-card h2 {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.latest-badge {
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.challenge-theme {
+  color: var(--accent);
+  font-size: 0.875rem;
+  margin-bottom: 0.25rem;
+  font-weight: 500;
+}
+
+.challenge-date {
+  color: #9ca3af;
+  font-size: 0.875rem;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: #9ca3af;
+}
+
+.empty-state h3 {
+  font-size: 1.5rem;
+  margin-bottom: 1rem;
+  color: var(--ink);
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .showcase-header h1 {
+    font-size: 2rem;
+  }
+
+  .showcase-header {
+    padding: 2rem 1rem 1.5rem;
+  }
+
+  .challenge-card {
+    padding: 1rem;
+  }
+
+  .challenge-card h2 {
+    font-size: 1.125rem;
+  }
+
+  .showcase-grid {
+    padding: 1.5rem 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .showcase-header h1 {
+    font-size: 1.75rem;
+  }
+
+  .tagline {
+    font-size: 1rem;
+  }
+}
