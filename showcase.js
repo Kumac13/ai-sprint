@@ -40,7 +40,8 @@
   }
 
   function createChallengeCard(day, isLatest = false) {
-    const card = document.createElement('article');
+    const card = document.createElement('a');
+    card.href = day.url;
     card.className = isLatest ? 'challenge-card latest' : 'challenge-card';
     card.dataset.day = day.number;
 
@@ -55,12 +56,9 @@
     const latestBadge = isLatest ? '<span class="latest-badge">Latest</span>' : '';
 
     card.innerHTML = `
-      <div class="challenge-header">
-        <h2>Day ${day.number}: ${escapeHtml(day.title)}${latestBadge}</h2>
-        ${day.theme ? `<p class="challenge-theme">テーマ: ${escapeHtml(day.theme)}</p>` : ''}
-        ${date ? `<time class="challenge-date" datetime="${day.created}">${date}</time>` : ''}
-        <a href="${day.url}" class="view-link">View Challenge →</a>
-      </div>
+      <h2>Day ${day.number}: ${escapeHtml(day.title)}${latestBadge}</h2>
+      ${day.theme ? `<p class="challenge-theme">テーマ: ${escapeHtml(day.theme)}</p>` : ''}
+      ${date ? `<time class="challenge-date" datetime="${day.created}">${date}</time>` : ''}
     `;
 
     return card;
