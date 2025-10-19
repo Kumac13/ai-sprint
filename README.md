@@ -44,20 +44,28 @@ View all challenges in one place:
    EOF
    ```
 
-3. **Commit**:
+3. **Update manifest.json**:
    ```bash
-   git add day3/
-   git commit -m "feat: add day3 challenge"
+   # Edit manifest.json to add your new challenge
+   # Update "total" count and add a new entry to "days" array:
+   {
+     "number": 3,
+     "folder": "day3",
+     "url": "day3/",
+     "title": "Your Challenge Title",
+     "theme": "テーマ",
+     "created": "2025-10-19T07:54:00.000Z"
+   }
    ```
 
-   → The pre-commit hook will automatically update `manifest.json`!
-
-4. **Push**:
+4. **Commit and push**:
    ```bash
+   git add day3/ manifest.json
+   git commit -m "feat: add day3 challenge"
    git push
    ```
 
-**That's it!** Your new challenge will automatically appear on the showcase page.
+**That's it!** Your new challenge will appear on the showcase page after GitHub Pages deploys.
 
 ---
 
@@ -77,8 +85,7 @@ After a few minutes, access at `https://username.github.io/repository-name/`
 - **HTML5 / CSS3 / JavaScript (ES6+)**
 - **Vanilla JS** (no frameworks)
 - **Intersection Observer API** (lazy loading)
-- **iframes** (challenge embedding)
-- **Git hooks** (automatic manifest.json generation)
+- **Dynamic showcase** (manifest.json-based)
 
 ---
 
@@ -89,7 +96,7 @@ ai-sprint/
 ├── index.html          # Showcase page
 ├── showcase.css        # Showcase styles
 ├── showcase.js         # Showcase logic
-├── manifest.json       # Auto-generated challenge list
+├── manifest.json       # Challenge list (update manually)
 ├── day1/
 │   └── index.html
 ├── day2/
@@ -102,11 +109,11 @@ ai-sprint/
 ## ⚡ Features
 
 - ✅ List all challenges
-- ✅ Display each challenge in an iframe (interactive elements work)
+- ✅ Display challenge links (direct navigation)
 - ✅ Highlight the latest challenge
 - ✅ Responsive design (mobile-friendly)
-- ✅ Lazy loading (performance optimized)
-- ✅ Auto-discovery (new challenges appear automatically)
+- ✅ Dynamic loading (manifest.json-based)
+- ✅ Simple and fast (vanilla JavaScript)
 
 ---
 

@@ -1,6 +1,6 @@
 {
-  "updated": "2025-10-18T02:17:21.991Z",
-  "total": 2,
+  "updated": "2025-10-19T07:55:00.000Z",
+  "total": 3,
   "days": [
     {
       "number": 1,
@@ -16,6 +16,14 @@
       "url": "day2/",
       "title": "15:00 — Pressure Timer",
       "created": "2025-10-18T01:03:50.371Z"
+    },
+    {
+      "number": 3,
+      "folder": "day3",
+      "url": "day3/",
+      "title": "距離・画角・センサー可視化",
+      "theme": "距離",
+      "created": "2025-10-19T07:54:00.000Z"
     }
   ]
 }
