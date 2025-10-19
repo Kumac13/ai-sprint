@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>距離・画角・センサー可視化（Canvas：画像面シミュレーション, 被写体=1.0m×1.7m 固定）</title>
+  <style>
+    /* ベーススタイル */
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+      margin: 16px;
+    }
+
+    /* レイアウト */
+    .wrap {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 12px;
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* コントロールパネル */
+    .panel {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 12px;
+      align-items: end;
+    }
+
+    /* フォーム要素 */
+    label {
+      display: grid;
+      gap: 6px;
+      font-size: 14px;
+    }
+    input[type="number"] {
+      padding: 6px 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    select {
+      padding: 6px 8px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    /* 計算結果表示エリア */
+    .readouts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px,1fr));
+      gap: 8px;
+      font-size: 14px;
+    }
+
+    /* ユーティリティ */
+    .mono {
+      font-variant-numeric: tabular-nums;
+    }
+    .small {
+      color: #666;
+      font-size: 12px;
+    }
+
+    /* Canvas（描画エリア） */
+    canvas {
+      width: 100%;
+      max-width: 1100px;
+      height: auto;
+      border: 1px solid #ddd;
+      border-radius: 8px;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>距離・画角・センサー可視化（画像面＝固定画面、被写体=横1.0m×縦1.7m）</h1>
+
+    <!-- 入力コントロール -->
+    <div class="panel">
+      <!-- センサーサイズ選択 -->
+      <label>センサーサイズ
+        <select id="sensor">
+          <option value="FF">フルフレーム 36×24mm</option>
+          <option value="APS-C">APS-C 23.6×15.7mm</option>
+          <option value="MFT">MFT 17.3×13.0mm</option>
+          <option value="1inch">1型 13.2×8.8mm</option>
+        </select>
+      </label>
+
+      <!-- 焦点距離 -->
+      <label>焦点距離 f（mm）
+        <input id="focal" type="number" min="12" max="200" step="1" value="50" class="mono" />
+      </label>
+
+      <!-- 被写体距離 -->
+      <label>被写体距離 D（m）
+        <input id="distance" type="number" min="0.5" max="30" step="0.1" value="3" class="mono" />
+      </label>
+
+      <!-- 表示スケール（未使用、将来の拡張用） -->
+      <label>描画右端距離（表示スケール）maxD（m）
+        <input id="maxD" type="number" min="5" max="100" step="1" value="20" class="mono" />
+        <span class="small">右端=視野スケール基準です。表示にのみ影響します。</span>
+      </label>
+    </div>
+
+    <!-- 計算結果の表示 -->
+    <div class="readouts">
+      <div>垂直画角（deg）: <span id="vfov" class="mono"></span></div>
+      <div>水平画角（deg）: <span id="hfov" class="mono"></span></div>
+      <div>距離Dの視野（縦×横, m）: <span id="fieldAtD" class="mono"></span></div>
+      <div>フレーム占有率（縦×横, %）: <span id="occ" class="mono"></span></div>
+      <div>クロップ: <span id="crop" class="mono"></span></div>
+      <div>全身が収まる最短距離（m）: <span id="fitDist" class="mono"></span></div>
+      <div>現在との差（m）: <span id="deltaDist" class="mono"></span></div>
+    </div>
+
+    <!-- アクションボタン -->
+    <div class="panel">
+      <button id="setFit" style="padding:8px 12px;border:1px solid #ccc;border-radius:6px;background:#f7f7f7;cursor:pointer;">距離を「収まる最短距離」に合わせる</button>
+    </div>
+
+    <!-- 描画キャンバス -->
+    <canvas id="cv" width="1100" height="520"></canvas>
+
+    <!-- 説明文 -->
+    <div class="small">固定画面（センサー/画像面）に対して、被写体 <strong>横1.0m × 縦1.7m</strong> を正面から表示します。f と D を変化させて、フレーム内での見え方を確認できます。</div>
+  </div>
+
+<script>
+// ============================================================
+// 定数定義
+// ============================================================
+
+/** センサーサイズのプリセット定義（単位: mm） */
+const SENSORS = {
+  "FF":   { key: "FF",    label: "フルフレーム 36×24mm", w: 36.0,  h: 24.0 },
+  "APS-C":{ key: "APS-C", label: "APS-C 23.6×15.7mm", w: 23.6,  h: 15.7 },
+  "MFT":  { key: "MFT",   label: "MFT 17.3×13.0mm", w: 17.3,  h: 13.0 },
+  "1inch":{ key: "1inch", label: "1型 13.2×8.8mm",  w: 13.2,  h: 8.8  },
+};
+
+/** 被写体サイズ（固定値）: 成人を想定した実寸（単位: m） */
+const SUBJECT_W_M = 1.0;  // 横幅
+const SUBJECT_H_M = 1.7;  // 高さ
+
+// ============================================================
+// DOM要素の取得
+// ============================================================
+
+const el = (id) => document.getElementById(id);
+
+// Canvas関連
+const cv = el('cv');
+const ctx = cv.getContext('2d');
+
+// 入力コントロール
+const sensorSel = el('sensor');
+const focalInput = el('focal');
+const distanceInput = el('distance');
+const maxDInput = el('maxD');
+
+// 計算結果の表示
+const vfovOut = el('vfov');
+const hfovOut = el('hfov');
+const fieldAtDOut = el('fieldAtD');
+const occOut = el('occ');
+const cropOut = el('crop');
+const fitDistOut = el('fitDist');
+const deltaDistOut = el('deltaDist');
+
+// ボタン
+const setFitBtn = document.getElementById('setFit');
+
+// ============================================================
+// ユーティリティ関数
+// ============================================================
+
+/**
+ * 数値を適切な桁数で丸め、末尾のゼロを削除
+ * @param {number} n - 丸める数値
+ * @param {number} d - 小数点以下の桁数（デフォルト: 2）
+ * @return {string} 整形された文字列
+ */
+const toFixedSmart = (n, d=2) => {
+  const s = n.toFixed(d);
+  return s.replace(/\.0+$/, '').replace(/(\.[1-9]*)0+$/, '$1');
+};
+
+/**
+ * センサーサイズと焦点距離から画角を計算
+ * @param {number} sensorH_mm - センサー高さ（mm）
+ * @param {number} sensorW_mm - センサー幅（mm）
+ * @param {number} focal_mm - 焦点距離（mm）
+ * @return {Object} { v: 垂直画角(rad), h: 水平画角(rad) }
+ */
+function calcFov(sensorH_mm, sensorW_mm, focal_mm) {
+  const v = 2 * Math.atan(sensorH_mm / (2 * focal_mm));
+  const h = 2 * Math.atan(sensorW_mm / (2 * focal_mm));
+  return { v, h };
+}
+
+// ============================================================
+// メイン描画関数
+// ============================================================
+
+/**
+ * Canvas上に画角と被写体の関係を描画
+ * 入力値に基づいて計算を行い、結果を表示・描画する
+ */
+function draw() {
+  // 入力値の取得
+  const sensor = SENSORS[sensorSel.value];
+  const f = parseFloat(focalInput.value) || 50;        // 焦点距離（mm）
+  const D = parseFloat(distanceInput.value) || 3;      // 被写体距離（m）
+  const maxD = parseFloat(maxDInput.value) || 20;      // 表示スケール（m）
+
+  // 画角（FOV）の計算
+  const { v: vFovRad, h: hFovRad } = calcFov(sensor.h, sensor.w, f);
+  const vFovDeg = vFovRad * 180 / Math.PI;  // ラジアン→度
+  const hFovDeg = hFovRad * 180 / Math.PI;
+
+  // 距離Dにおける視野サイズ（m）
+  const fieldH_m = 2 * D * Math.tan(vFovRad / 2); // 縦
+  const fieldW_m = 2 * D * Math.tan(hFovRad / 2); // 横
+
+  // 被写体全体が収まる最短距離の計算
+  const DfitV = SUBJECT_H_M / (2 * Math.tan(vFovRad / 2));  // 縦基準
+  const DfitH = SUBJECT_W_M / (2 * Math.tan(hFovRad / 2));  // 横基準
+  const Dfit = Math.max(DfitV, DfitH);  // より大きい方を採用
+  const delta = D - Dfit;  // 現在距離との差
+
+  // 計算結果の表示
+  vfovOut.textContent = toFixedSmart(vFovDeg, 2);
+  hfovOut.textContent = toFixedSmart(hFovDeg, 2);
+  fieldAtDOut.textContent = `${toFixedSmart(fieldH_m,3)} × ${toFixedSmart(fieldW_m,3)}`;
+  fitDistOut.textContent = toFixedSmart(Dfit, 3);
+  deltaDistOut.textContent = toFixedSmart(delta, 3);
+
+  // ============================================================
+  // Canvas描画: 画像面（フロントビュー）
+  // ============================================================
+
+  const W = cv.width, Hpx = cv.height;
+  const margin = 24;
+  ctx.clearRect(0, 0, W, Hpx);
+
+  // センサーのアスペクト比を計算（例: FF = 36:24 = 3:2）
+  const aspect = sensor.w / sensor.h;
+
+  // Canvasに収まる最大のフレームサイズを計算
+  let frameW = W - margin * 2;
+  let frameH = frameW / aspect;
+  if (frameH > Hpx - margin * 2) {
+    frameH = Hpx - margin * 2;
+    frameW = frameH * aspect;
+  }
+  const fx = (W - frameW) / 2;     // フレームX座標
+  const fy = (Hpx - frameH) / 2;   // フレームY座標
+
+  // フレーム外枠の描画
+  ctx.save();
+  ctx.fillStyle = '#fafafa';
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 2;
+  ctx.fillRect(fx, fy, frameW, frameH);
+  ctx.strokeRect(fx, fy, frameW, frameH);
+  ctx.restore();
+
+  // 構図ガイドライン（三分割法）の描画
+  ctx.save();
+  ctx.strokeStyle = '#e5e5e5';
+  ctx.lineWidth = 1;
+  for (let i=1; i<=2; i++) {
+    const gx = fx + (frameW * i)/3;
+    const gy = fy + (frameH * i)/3;
+    // 縦線
+    ctx.beginPath();
+    ctx.moveTo(gx, fy);
+    ctx.lineTo(gx, fy+frameH);
+    ctx.stroke();
+    // 横線
+    ctx.beginPath();
+    ctx.moveTo(fx, gy);
+    ctx.lineTo(fx+frameW, gy);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  // ============================================================
+  // 被写体の描画
+  // ============================================================
+
+  // 被写体の実寸をフレーム内での占有率に変換
+  const ratioV = SUBJECT_H_M / fieldH_m;  // 縦方向占有率
+  const ratioH = SUBJECT_W_M / fieldW_m;  // 横方向占有率
+
+  // ピクセル単位でのサイズ
+  const subjectH_px = ratioV * frameH;
+  const subjectW_px = ratioH * frameW;
+
+  // はみ出し判定
+  const overflowV = subjectH_px > frameH;
+  const overflowH = subjectW_px > frameW;
+
+  // 配置位置の計算（中央下寄せ: 足元が下端に来るように）
+  const cx = fx + frameW / 2;              // 中央X座標
+  const bottomY = fy + frameH - 4;         // 下端Y座標（余白4px）
+  const topY = bottomY - subjectH_px;      // 上端Y座標
+
+  // フレーム内のみ描画（クリッピング）
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(fx, fy, frameW, frameH);
+  ctx.clip();
+
+  // 被写体を矩形で描画（1.0m × 1.7m の実寸比）
+  ctx.fillStyle = '#2b2b2b';
+  ctx.fillRect(cx - subjectW_px/2, topY, subjectW_px, subjectH_px);
+
+  // はみ出している場合は赤い点線枠で警告表示
+  if (overflowV || overflowH) {
+    ctx.strokeStyle = '#c02b2b';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(fx+2, fy+2, frameW-4, frameH-4);
+    ctx.setLineDash([]);
+  }
+
+  ctx.restore();
+
+  // ============================================================
+  // フレーム占有率とクロップ状態の表示
+  // ============================================================
+
+  const pctV = Math.min(100, Math.max(0, ratioV * 100));
+  const pctH = Math.min(100, Math.max(0, ratioH * 100));
+  occOut.textContent = `${toFixedSmart(pctV,1)} × ${toFixedSmart(pctH,1)}`;
+
+  // クロップ状態の判定と表示
+  if (overflowV && overflowH) {
+    cropOut.textContent = '縦・横';
+  } else if (overflowV) {
+    cropOut.textContent = '縦';
+  } else if (overflowH) {
+    cropOut.textContent = '横';
+  } else {
+    cropOut.textContent = 'なし';
+  }
+}
+
+// ============================================================
+// イベントリスナーの登録
+// ============================================================
+
+/**
+ * 入力値が変更されたら即座に再描画
+ * change: 確定時（セレクト選択、フォーカス外れ時など）
+ * input: 入力中（リアルタイム）
+ */
+['change', 'input'].forEach(evt => {
+  sensorSel.addEventListener(evt, draw);
+  focalInput.addEventListener(evt, draw);
+  distanceInput.addEventListener(evt, draw);
+  maxDInput.addEventListener(evt, draw);
+});
+
+// ============================================================
+// 初期化処理
+// ============================================================
+
+/**
+ * ページロード時の初期化
+ * 被写体が収まる最短距離を自動計算して距離を設定
+ */
+window.addEventListener('load', () => {
+  const sensor = SENSORS[sensorSel.value];
+  const f = parseFloat(focalInput.value) || 50;
+  const { v: vFovRad, h: hFovRad } = calcFov(sensor.h, sensor.w, f);
+  const DfitV = SUBJECT_H_M / (2 * Math.tan(vFovRad / 2));
+  const DfitH = SUBJECT_W_M / (2 * Math.tan(hFovRad / 2));
+  const Dfit = Math.max(DfitV, DfitH);
+  distanceInput.value = toFixedSmart(Dfit, 2);
+  draw();
+});
+
+// ============================================================
+// ボタンアクション
+// ============================================================
+
+/**
+ * 「収まる最短距離に合わせる」ボタン
+ * 現在の設定で被写体が完全に収まる距離を自動計算して適用
+ */
+setFitBtn.addEventListener('click', () => {
+  const sensor = SENSORS[sensorSel.value];
+  const f = parseFloat(focalInput.value) || 50;
+  const { v: vFovRad, h: hFovRad } = calcFov(sensor.h, sensor.w, f);
+  const DfitV = SUBJECT_H_M / (2 * Math.tan(vFovRad / 2));
+  const DfitH = SUBJECT_W_M / (2 * Math.tan(hFovRad / 2));
+  const Dfit = Math.max(DfitV, DfitH);
+  distanceInput.value = toFixedSmart(Dfit, 2);
+  draw();
+});
+</script>
+</body>
+</html>
