@@ -23,21 +23,21 @@ View all challenges in one place:
 
 1. **Create a new folder**:
    ```bash
-   mkdir day3
+   mkdir -p challenges/day4
    ```
 
 2. **Create index.html**:
    ```bash
-   cat > day3/index.html << 'EOF'
+   cat > challenges/day4/index.html << 'EOF'
    <!DOCTYPE html>
    <html lang="ja">
    <head>
      <meta charset="UTF-8">
      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-     <title>Day 3: Your Challenge Title</title>
+     <title>Day 4: Your Challenge Title</title>
    </head>
    <body>
-     <h1>Day 3 Challenge</h1>
+     <h1>Day 4 Challenge</h1>
      <!-- Your challenge content here -->
    </body>
    </html>
@@ -49,19 +49,19 @@ View all challenges in one place:
    # Edit manifest.json to add your new challenge
    # Update "total" count and add a new entry to "days" array:
    {
-     "number": 3,
-     "folder": "day3",
-     "url": "day3/",
+     "number": 4,
+     "folder": "challenges/day4",
+     "url": "challenges/day4/",
      "title": "Your Challenge Title",
      "theme": "テーマ",
-     "created": "2025-10-19T07:54:00.000Z"
+     "created": "2025-10-20T00:00:00.000Z"
    }
    ```
 
 4. **Commit and push**:
    ```bash
-   git add day3/ manifest.json
-   git commit -m "feat: add day3 challenge"
+   git add challenges/day4/ manifest.json
+   git commit -m "feat: add day4 challenge"
    git push
    ```
 
@@ -97,10 +97,13 @@ ai-sprint/
 ├── showcase.css        # Showcase styles
 ├── showcase.js         # Showcase logic
 ├── manifest.json       # Challenge list (update manually)
-├── day1/
-│   └── index.html
-├── day2/
-│   └── index.html
+├── challenges/         # All daily challenges
+│   ├── day1/
+│   │   └── index.html
+│   ├── day2/
+│   │   └── index.html
+│   └── day3/
+│       └── index.html
 └── README.md
 ```
 
