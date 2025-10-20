@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>感情の滲みメモ</title>
+  <style>
+    html, body { height: 100%; margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN"; background:#f5f5f5; }
+    .wrap { min-height: 100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; padding: 24px; }
+    .stack { position: relative; width: min(88vmin, 560px); height: min(88vmin, 560px); }
+    .page { position:absolute; inset:0; display:grid; place-items:center; border-radius: 16px; background:#fff; box-shadow: 0 10px 40px rgba(0,0,0,.12); border:1px solid #e8e8e8; overflow:hidden; }
+    .ghost { pointer-events:none; white-space:pre-wrap; line-height:1.65; opacity:.18; filter: blur(1.2px); padding: 32px; font-size: clamp(14px, 2.2vmin, 18px); color:#111; }
+    .paper { position:relative; width:100%; height:100%; }
+    .pad { padding: 32px; width:100%; height:100%; box-sizing:border-box; }
+    textarea { width:100%; height:100%; resize:none; border:none; outline:none; background:transparent; font: inherit; font-size: clamp(14px, 2.4vmin, 18px); line-height:1.7; color:#111; }
+    .bar { display:flex; justify-content:space-between; gap:8px; width: min(88vmin, 560px); }
+    .btn { -webkit-appearance:none; appearance:none; border:1px solid #ddd; background:#fff; padding:10px 14px; border-radius:10px; cursor:pointer; }
+    .btn[disabled] { opacity:.45; cursor:not-allowed; }
+    .caption { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); font-size:12px; color:#666; background:#fff; border:1px solid #e5e5e5; padding:6px 10px; border-radius:10px; box-shadow: 0 6px 18px rgba(0,0,0,.06); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="stack" id="stack"></div>
+    <div class="bar" id="bar"></div>
+  </div>
+  <div class="caption">書き進めると、前の言葉が紙の奥に滲みます。最後まで書くと保存できます。</div>
+
+<script>
+(() => {
+  // --- 設定（画面に数値は出しません） ---
+  const START = 50;
+  const MIN_FINAL = 5; // 最終は 5 文字
+  // 減衰率は毎回 0.45〜0.9 のランダム。段数は自動決定。
+  function makeSteps(){
+    const steps = [START];
+    let v = START;
+    while(true){
+      const ratio = 0.45 + Math.random() * 0.45; // 0.45..0.9
+      let next = Math.floor(v * ratio);
+      if(next >= v) next = v - 1; // 厳密減少
+      if(next < MIN_FINAL) break;
+      // 途中の段は 6 以上に保つ
+      if(next < 6) next = 6;
+      steps.push(next);
+      v = next;
+      if(v <= 6) break;
+    }
+    if(steps[steps.length-1] !== MIN_FINAL) steps.push(MIN_FINAL);
+    return steps;
+  }
+
+  const stack = document.getElementById('stack');
+  const bar = document.getElementById('bar');
+  const steps = makeSteps();
+  const texts = [];
+  let stepIndex = 0;
+
+  function createPage(ghostText){
+    const page = document.createElement('div');
+    page.className = 'page';
+
+    // 滲み（ゴースト）
+    if(ghostText){
+      const ghost = document.createElement('div');
+      ghost.className = 'ghost';
+      ghost.textContent = ghostText;
+      page.appendChild(ghost);
+    }
+
+    const paper = document.createElement('div');
+    paper.className = 'paper';
+
+    const pad = document.createElement('div');
+    pad.className = 'pad';
+
+    const ta = document.createElement('textarea');
+    ta.placeholder = 'ここに書いてください。';
+
+    // 文字数上限（非表示で制御）
+    const limit = steps[stepIndex];
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'btn';
+    saveBtn.textContent = '保存';
+    saveBtn.disabled = true;
+
+    const nextBtn = document.createElement('button');
+    nextBtn.className = 'btn';
+    nextBtn.textContent = (stepIndex === steps.length - 1) ? '完了' : '次へ';
+    nextBtn.disabled = true;
+
+    function clamp(){
+      if(ta.value.length > limit){
+        ta.value = ta.value.slice(0, limit);
+      }
+      nextBtn.disabled = ta.value.trim().length === 0;
+    }
+    ta.addEventListener('input', clamp);
+
+    pad.appendChild(ta);
+
+    nextBtn.addEventListener('click', () => {
+      const v = ta.value.trim();
+      if(!v) return;
+      texts.push(v);
+      // このページを固定化（編集不可）
+      ta.readOnly = true;
+      nextBtn.disabled = true;
+
+      // 最終段なら保存可能化
+      if(stepIndex === steps.length - 1){
+        assembleAndEnableSave(saveBtn);
+        return;
+      }
+      // 次の段へ
+      stepIndex += 1;
+      const bleed = texts.join('\n\n');
+      const nextPage = createPage(bleed);
+      stack.appendChild(nextPage);
+    });
+
+    saveBtn.addEventListener('click', () => {
+      // 最後まで書かないと到達しない
+      const blob = new Blob([buildExportText()], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = 'emotion-bleed.txt';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    });
+
+    bar.innerHTML = '';
+    bar.appendChild(saveBtn);
+    bar.appendChild(nextBtn);
+
+    paper.appendChild(pad);
+    page.appendChild(paper);
+    return page;
+  }
+
+  function assembleAndEnableSave(saveBtn){
+    saveBtn.disabled = false;
+  }
+
+  function buildExportText(){
+    // 区切り線も数値は出さず、静かな構成
+    return texts.map(t => t).join('\n\n---\n\n');
+  }
+
+  // 初期ページ
+  const first = createPage('');
+  stack.appendChild(first);
+})();
+</script>
+</body>
+</html>
