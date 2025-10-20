@@ -68,7 +68,7 @@
     grid.innerHTML = `
       <div class="empty-state">
         <h3>No challenges yet</h3>
-        <p>Create your first challenge in a challenges/day1/ folder!</p>
+        <p>Create your first challenge in a day1/ folder!</p>
       </div>
     `;
     countEl.textContent = '0 challenges';

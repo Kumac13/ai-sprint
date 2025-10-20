@@ -46,12 +46,12 @@ View all challenges in one place:
 
 3. **Update manifest.json**:
    ```bash
-   # Edit manifest.json to add your new challenge
+   # Edit challenges/manifest.json to add your new challenge
    # Update "total" count and add a new entry to "days" array:
    {
      "number": 4,
-     "folder": "challenges/day4",
-     "url": "challenges/day4/",
+     "folder": "day4",
+     "url": "day4/",
      "title": "Your Challenge Title",
      "theme": "テーマ",
      "created": "2025-10-20T00:00:00.000Z"
@@ -60,7 +60,7 @@ View all challenges in one place:
 
 4. **Commit and push**:
    ```bash
-   git add challenges/day4/ manifest.json
+   git add challenges/day4/ challenges/manifest.json
    git commit -m "feat: add day4 challenge"
    git push
    ```
@@ -93,11 +93,12 @@ After a few minutes, access at `https://username.github.io/repository-name/`
 
 ```
 ai-sprint/
-├── index.html          # Showcase page
-├── showcase.css        # Showcase styles
-├── showcase.js         # Showcase logic
-├── manifest.json       # Challenge list (update manually)
-├── challenges/         # All daily challenges
+├── index.html          # Redirect to challenges/
+├── challenges/         # Main showcase and challenges
+│   ├── index.html      # Showcase page
+│   ├── showcase.css    # Showcase styles
+│   ├── showcase.js     # Showcase logic
+│   ├── manifest.json   # Challenge list (update manually)
 │   ├── day1/
 │   │   └── index.html
 │   ├── day2/
