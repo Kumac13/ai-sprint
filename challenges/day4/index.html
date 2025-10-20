@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>集合の境界 可視化（Venn / 直積）</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans JP, sans-serif; margin: 24px; line-height: 1.6; }
+    .wrap { max-width: 980px; margin-inline: auto; display: grid; gap: 16px; }
+    .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .tabs button { padding: 8px 12px; border: 1px solid #8884; background: buttonface; cursor: pointer; border-radius: 8px; }
+    .tabs button[aria-selected="true"] { outline: 2px solid Highlight; }
+    .view { display: none; border: 1px solid #8884; border-radius: 12px; padding: 16px; }
+    .view[aria-hidden="false"] { display: block; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+    label { display: grid; gap: 6px; font-size: 14px; }
+    input, select, button { padding: 8px 10px; font: inherit; }
+    canvas { width: 100%; max-width: 940px; height: 260px; border: 1px solid #8884; border-radius: 8px; background: canvas; }
+    .legend { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; }
+    .dot { width: 14px; height: 14px; border-radius: 50%; display: inline-block; }
+    .line { width: 26px; height: 4px; display: inline-block; border-radius: 2px; }
+    .out { background: #9aa0a6; }
+    .in { background: #34a853; }
+    .bd { background: #d93025; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; }
+    .note { font-size: 13px; opacity: .85; }
+    .col { display: grid; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>集合と境界の可視化（ベン図・直積 A×B）</h1>
+
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="t2" aria-selected="true">Venn（A, B）</button>
+      <button role="tab" data-tab="t3" aria-selected="false">直積 A×B（2D）</button>
+    </nav>
+
+    <!-- ベン図 -->
+    <section id="t2" class="view" aria-hidden="false">
+      <div class="row">
+        <div class="col">
+          <label>表現対象
+            <select id="vennExpr">
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="AUB">A ∪ B</option>
+              <option value="AIB">A ∩ B</option>
+            </select>
+          </label>
+          <label>A の型
+            <select id="Aopen">
+              <option value="open">開（open）</option>
+              <option value="closed">閉（closed）</option>
+            </select>
+          </label>
+          <label>B の型
+            <select id="Bopen">
+              <option value="open">開（open）</option>
+              <option value="closed">閉（closed）</option>
+            </select>
+          </label>
+        </div>
+        <div class="col">
+          <label>半径 rA<input id="rA" type="number" value="90" min="20" max="200"/></label>
+          <label>半径 rB<input id="rB" type="number" value="90" min="20" max="200"/></label>
+          <label>中心距離 d<input id="dist" type="number" value="120" min="0" max="400"/></label>
+        </div>
+        <button id="drawVenn">更新</button>
+      </div>
+      <div class="legend">
+        <span class="chip"><span class="line in"></span> 内部（塗り）</span>
+        <span class="chip"><span class="dot bd"></span> 境界（円周）：開→破線、閉→実線</span>
+      </div>
+      <canvas id="cv2" width="940" height="300"></canvas>
+      <div class="mono" id="facts2"></div>
+      <div class="note">A, B をユークリッド平面上の開/閉円板として近似します。開は境界を含まず、閉は境界を含みます。</div>
+    </section>
+
+    <!-- 直積 A×B -->
+    <section id="t3" class="view" aria-hidden="true">
+      <div class="row">
+        <div class="col">
+          <label>A（x軸）
+            <select id="Ax">
+              <option value="(a,b)">(a, b)</option>
+              <option value="[a,b]">[a, b]</option>
+              <option value="(a,b]">(a, b]</option>
+              <option value="[a,b)">[a, b)</option>
+            </select>
+          </label>
+          <label>a<input id="a1" type="number" step="any" value="0" /></label>
+          <label>b<input id="b1" type="number" step="any" value="2" /></label>
+        </div>
+        <div class="col">
+          <label>B（y軸）
+            <select id="By">
+              <option value="(c,d)">(c, d)</option>
+              <option value="[c,d]">[c, d]</option>
+              <option value="(c,d]">(c, d]</option>
+              <option value="[c,d)">[c, d)</option>
+            </select>
+          </label>
+          <label>c<input id="c1" type="number" step="any" value="0" /></label>
+          <label>d<input id="d1" type="number" step="any" value="1" /></label>
+        </div>
+        <div class="col">
+          <label>x 範囲[min,max]
+            <span class="row" style="gap:8px"><input id="xmin" type="number" value="-1"/><input id="xmax" type="number" value="3"/></span>
+          </label>
+          <label>y 範囲[min,max]
+            <span class="row" style="gap:8px"><input id="ymin" type="number" value="-1"/><input id="ymax" type="number" value="2"/></span>
+          </label>
+        </div>
+        <button id="drawRect">更新</button>
+      </div>
+      <div class="legend">
+        <span class="chip"><span class="line in"></span> A×B の内部（塗り）</span>
+        <span class="chip"><span class="dot bd"></span> 境界（辺）：開側は破線、閉側は実線</span>
+      </div>
+      <canvas id="cv3" width="940" height="360"></canvas>
+      <div class="mono" id="facts3"></div>
+      <div class="note">A×B の境界は各辺のうち、閉側を含み、開側は含みません（ユークリッド位相）。</div>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id)=>document.getElementById(id);
+
+    document.querySelectorAll('.tabs button').forEach(btn=>{
+      btn.addEventListener('click', ()=>{
+        document.querySelectorAll('.tabs button').forEach(b=>b.setAttribute('aria-selected','false'));
+        btn.setAttribute('aria-selected','true');
+        const tab = btn.dataset.tab;
+        document.querySelectorAll('.view').forEach(v=>v.setAttribute('aria-hidden','true'));
+        $(tab).setAttribute('aria-hidden','false');
+      });
+    });
+
+    function drawCircle(ctx, cx, cy, r, open){
+      ctx.save();
+      ctx.setLineDash(open ? [8,6] : []);
+      ctx.lineWidth = 3; ctx.strokeStyle = "#d93025";
+      ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+      ctx.restore();
+    }
+    function fillDisk(ctx, cx, cy, r){ ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.closePath(); ctx.fill(); }
+    function drawVenn(){
+      const cv = $("cv2"), ctx = cv.getContext("2d"); ctx.clearRect(0,0,cv.width,cv.height);
+      const rA = +$("rA").value, rB = +$("rB").value, d = +$("dist").value;
+      const openA = $("Aopen").value === 'open', openB = $("Bopen").value === 'open';
+      const expr = $("vennExpr").value;
+      const cy = cv.height/2, cx1 = cv.width/2 - d/2, cx2 = cv.width/2 + d/2;
+      ctx.fillStyle = "#34a853"; ctx.globalAlpha = 0.6;
+      if(expr==='A') fillDisk(ctx, cx1, cy, rA);
+      else if(expr==='B') fillDisk(ctx, cx2, cy, rB);
+      else {
+        const pA = new Path2D(); pA.arc(cx1, cy, rA, 0, Math.PI*2);
+        const pB = new Path2D(); pB.arc(cx2, cy, rB, 0, Math.PI*2);
+        if(expr==='AUB'){ ctx.fill(pA); ctx.fill(pB); }
+        else { ctx.save(); ctx.clip(pA, 'nonzero'); ctx.fill(pB); ctx.restore(); }
+      }
+      ctx.globalAlpha = 1;
+      drawCircle(ctx, cx1, cy, rA, openA);
+      drawCircle(ctx, cx2, cy, rB, openB);
+      const facts=[];
+      facts.push(`A：${openA?'開円板（境界を含まない）':'閉円板（境界を含む）'}`);
+      facts.push(`B：${openB?'開円板（境界を含まない）':'閉円板（境界を含む）'}`);
+      facts.push(`表示：${expr.replace('AUB','A ∪ B').replace('AIB','A ∩ B')}`);
+      $("facts2").innerText=facts.join('\n');
+    }
+    $("drawVenn").addEventListener('click', drawVenn);
+
+    function parseEnds(tag){ return { loOpen: tag.startsWith('('), hiOpen: tag.endsWith(')') }; }
+    function drawRectProd(){
+      const cv=$("cv3"), ctx=cv.getContext('2d'); ctx.clearRect(0,0,cv.width,cv.height);
+      const xmin=+$("xmin").value,xmax=+$("xmax").value,ymin=+$("ymin").value,ymax=+$("ymax").value;
+      const a=+$("a1").value,b=+$("b1").value,c=+$("c1").value,d=+$("d1").value;
+      const Ax=$("Ax").value,By=$("By").value;
+      const endsX=parseEnds(Ax),endsY=parseEnds(By);
+      let ax=a,bx=b;if(ax>bx)[ax,bx]=[bx,ax];let cy=c,dy=d;if(cy>dy)[cy,dy]=[dy,cy];
+      const pad=50,W=cv.width,H=cv.height,L=pad,R=W-pad,Bt=H-pad,T=pad;
+      const sx=(x)=>L+(x-xmin)*(R-L)/(xmax-xmin);
+      const sy=(y)=>Bt-(y-ymin)*(Bt-T)/(ymax-ymin);
+      ctx.lineWidth=2;ctx.strokeStyle='#5f6368';
+      ctx.beginPath();ctx.moveTo(L,Bt);ctx.lineTo(R,Bt);ctx.moveTo(L,Bt);ctx.lineTo(L,T);ctx.stroke();
+      ctx.fillStyle='#34a853';ctx.globalAlpha=0.6;
+      const X1=sx(ax),X2=sx(bx),Y1=sy(cy),Y2=sy(dy);
+      ctx.fillRect(Math.min(X1,X2),Math.min(Y1,Y2),Math.abs(X2-X1),Math.abs(Y2-Y1));ctx.globalAlpha=1;
+      function edge(x1,y1,x2,y2,open){ctx.save();ctx.setLineDash(open?[8,6]:[]);ctx.lineWidth=3;ctx.strokeStyle='#d93025';ctx.beginPath();ctx.moveTo(x1,y1);ctx.lineTo(x2,y2);ctx.stroke();ctx.restore();}
+      edge(X1,Y1,X2,Y1,endsY.loOpen);edge(X1,Y2,X2,Y2,endsY.hiOpen);edge(X1,Y1,X1,Y2,endsX.loOpen);edge(X2,Y1,X2,Y2,endsX.hiOpen);
+      const facts=[];facts.push(`A = ${Ax.replace('a',ax).replace('b',bx)}, B = ${By.replace('c',cy).replace('d',dy)}`);
+      facts.push('A×B の内部は矩形の内部点、境界は各辺です。開側の辺は集合に含まれません。');
+      $("facts3").innerText=facts.join('\n');
+    }
+    $("drawRect").addEventListener('click',drawRectProd);
+    drawVenn();drawRectProd();
+  </script>
+</body>
+</html>
+
