@@ -1,0 +1,263 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>Oil Film Transition - 遷移する虹色の油膜</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 12px; }
+  #ui { display:flex; gap:12px; align-items:center; margin-bottom:8px; flex-wrap:wrap; }
+  label { font-size:12px; display:flex; gap:6px; align-items:center; }
+  canvas { border:1px solid #ccc; image-rendering: pixelated; display:block; }
+</style>
+<div id="ui">
+  <label>Mode
+    <select id="mode">
+      <option value="continuous" selected>continuous</option>
+      <option value="discrete">discrete</option>
+    </select>
+  </label>
+  <button id="reset">reset</button>
+</div>
+<canvas id="cv" width="640" height="640"></canvas>
+<script>
+(()=> {
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  const W=256, H=256, N=W*H, sx=cv.width/W, sy=cv.height/H;
+
+  let h=new Float32Array(N);     // height
+  let v=new Float32Array(N);     // velocity
+  let oil=new Float32Array(N);   // oil density 0..1
+  let oilBin=new Uint8Array(N);  // for discrete mode (0/1)
+  let lap=new Float32Array(N);   // scratch
+  let t0=0;                      // time offset
+
+  function idx(x,y){ return y*W+x; }
+  function reset(){
+    h.fill(0); v.fill(0); oil.fill(0); oilBin.fill(0);
+    t0=performance.now()*0.001;
+
+    // 初期油膜を複数配置（遷移のスタート地点）
+    const spots = 8 + Math.random()*5;
+    for(let i=0; i<spots; i++){
+      const cx = 20 + Math.random()*(W-40);
+      const cy = 20 + Math.random()*(H-40);
+      const r = 15 + Math.random()*25;
+      for(let y=0; y<H; y++){
+        for(let x=0; x<W; x++){
+          const d = Math.hypot(x-cx, y-cy);
+          if(d < r){
+            const k = idx(x,y);
+            oil[k] = Math.max(oil[k], 0.3 + 0.7*(1-d/r) + Math.random()*0.2);
+          }
+        }
+      }
+    }
+  }
+  document.getElementById('reset').addEventListener('click', reset);
+  reset();
+
+  const uiMode = document.getElementById('mode');
+
+  // --- autonomous drivers ---
+  // smooth pseudo-noise by mixing few sinusoids + slowly evolving phases
+  const waves = [
+    {kx:0.07, ky:0.03, w:0.8,  a:0.25, ph:Math.random()*6.28},
+    {kx:0.02, ky:0.09, w:0.55, a:0.18, ph:Math.random()*6.28},
+    {kx:-0.05,ky:0.04, w:0.37, a:0.22, ph:Math.random()*6.28},
+  ];
+
+  function laplacian(src, out){
+    // zero Neumann at border（境界で流出しにくく）
+    for(let y=1;y<H-1;y++){
+      for(let x=1;x<W-1;x++){
+        const k=idx(x,y);
+        out[k]=src[k-1]+src[k+1]+src[k-W]+src[k+W]-4*src[k];
+      }
+    }
+  }
+
+  function driveForcing(x,y,t){
+    // 混合正弦で時空間強制（風・振動源の代理）
+    let f=0;
+    for(const s of waves){
+      f += s.a * Math.sin(s.kx*x + s.ky*y + s.w*t + s.ph);
+    }
+    return f*0.6; // 総量
+  }
+
+  function step(dt){
+    const t = (performance.now()*0.001 - t0);
+
+    // --- oil field auto-evolution ---
+    if(uiMode.value==='continuous'){
+      // 油膜の拡散＋波の影響で遷移
+      laplacian(oil, lap);
+      for(let k=0;k<N;k++){
+        // 拡散による広がり（遷移）
+        oil[k] += 0.025*lap[k];
+
+        // 波の高さの影響で油膜が移動（対流シミュレーション）
+        const flowStrength = 0.0015;
+        oil[k] += flowStrength * (Math.sin(0.001*k + 0.6*t) + Math.cos(0.0015*k - 0.4*t));
+
+        oil[k] = Math.min(1, Math.max(0, oil[k]));
+      }
+
+      // 時々新しい油膜の核を生成（遷移の継続）
+      if(Math.random() < 0.02){
+        const k = (Math.random()*N)|0;
+        oil[k] = Math.min(1, oil[k] + 0.3 + Math.random()*0.4);
+      }
+
+    } else {
+      // 離散：確率的核生成と多数決での合体・消滅（自動で模様が動く）
+      for(let k=0;k<N;k++){
+        oilBin[k] = oil[k] > 0.5 ? 1 : 0;
+      }
+      // ランダム核
+      for(let s=0;s<200;s++){
+        const k = (Math.random()*N)|0;
+        if(Math.random()<0.05) oilBin[k]=1;
+      }
+      // 多数決（Moore 8近傍）
+      for(let y=1;y<H-1;y++){
+        for(let x=1;x<W-1;x++){
+          const k=idx(x,y);
+          let s=0;
+          s+=oilBin[k-1]+oilBin[k+1]+oilBin[k-W]+oilBin[k+W]
+            +oilBin[k-W-1]+oilBin[k-W+1]+oilBin[k+W-1]+oilBin[k+W+1];
+          // しきい値で更新（ヒステリシス気味）
+          if(s>=5) oil[k]=Math.min(1, oil[k]+0.08);
+          else if(s<=2) oil[k]=Math.max(0, oil[k]-0.08);
+          else oil[k]+= (Math.random()-0.5)*0.01;
+          oil[k]=Math.min(1,Math.max(0,oil[k]));
+        }
+      }
+    }
+
+    // --- wave update (heightfield) ---
+    laplacian(h, lap);
+
+    const c0=0.35;        // 基本波速
+    const gamma0=0.018;   // 基本減衰
+    const kc=0.35;        // 油による波速低下係数
+    const kg=0.25;        // 油による減衰増加係数
+
+    // 2サブステップで安定化
+    const sub=2, sdt=dt/sub;
+    for(let n=0;n<sub;n++){
+      // 外力を加える（自動）
+      // 低コスト：計算格子のサブサンプリングで近似
+      for(let y=1;y<H-1;y++){
+        for(let x=1;x<W-1;x++){
+          const k=idx(x,y);
+          const phi = oil[k];
+          const c = c0*(1 - kc*phi);
+          const g = gamma0 + kg*phi;
+
+          // 自然発振を維持するための弱い時空間強制
+          const F = 0.003*driveForcing(x, y, t + n*sdt);
+
+          // v,h 更新（減衰付き）
+          v[k] += ( (c*c)*lap[k] - g*v[k] + F ) * sdt;
+        }
+      }
+      for(let k=0;k<N;k++){
+        h[k] += v[k]*sdt;
+      }
+    }
+  }
+
+  // --- rendering (薄膜干渉による虹色) ---
+  const img = ctx.createImageData(W,H);
+  const data=img.data;
+
+  // 薄膜干渉色の計算（油膜の厚さと角度から虹色を生成）
+  function thinFilmColor(thickness, cosAngle, t){
+    // 油膜の厚さに基づく光路差 + 時間変化で遷移を表現
+    const phase = thickness * 8.0 + cosAngle * 2.0 + t * 0.3;
+
+    // RGB各波長での干渉（波長の違いで虹色に）
+    const r = 0.5 + 0.5 * Math.cos(phase);
+    const g = 0.5 + 0.5 * Math.cos(phase + 2.09); // 2π/3
+    const b = 0.5 + 0.5 * Math.cos(phase + 4.19); // 4π/3
+
+    return {r, g, b};
+  }
+
+  function render(){
+    const t = (performance.now()*0.001 - t0);
+
+    for(let y=0;y<H;y++){
+      for(let x=0;x<W;x++){
+        const k=idx(x,y);
+
+        // 勾配計算（境界では安全に処理）
+        let dhdx, dhdy;
+        if(x>0 && x<W-1) dhdx = (h[k+1]-h[k-1])*0.5;
+        else if(x===0) dhdx = h[k+1]-h[k];
+        else dhdx = h[k]-h[k-1];
+
+        if(y>0 && y<H-1) dhdy = (h[k+W]-h[k-W])*0.5;
+        else if(y===0) dhdy = h[k+W]-h[k];
+        else dhdy = h[k]-h[k-W];
+
+        // 法線近似
+        const nx=-dhdx, ny=-dhdy, nz=1.0;
+        const inv=1/Math.hypot(nx,ny,nz);
+        const lx=0.4, ly=0.6, lz=1.0; // 光源方向
+        const nd = Math.max(0,(nx*lx+ny*ly+nz*lz)*inv/Math.hypot(lx,ly,lz));
+
+        const phi=oil[k];
+        let R, G, B;
+
+        if(phi > 0.05){
+          // 油膜がある場合：薄膜干渉による虹色
+          const filmColor = thinFilmColor(phi, nd, t);
+
+          // 基本の水面反射
+          const baseI = 60 + 140*nd;
+
+          // 虹色と基本照明を合成（油膜が濃いほど虹色が強い）
+          const iridescence = Math.pow(phi, 0.7) * 220;
+          R = baseI + filmColor.r * iridescence;
+          G = baseI + filmColor.g * iridescence;
+          B = baseI + filmColor.b * iridescence;
+
+          // スペキュラハイライト（白く輝く部分）
+          const spec = Math.pow(nd, 15) * 180 * phi;
+          R += spec;
+          G += spec;
+          B += spec;
+
+        } else {
+          // 油膜がない部分：通常の水面（青みがかった色）
+          const I = 30 + 100*nd;
+          R = I * 0.8;
+          G = I * 0.9;
+          B = I * 1.0;
+        }
+
+        const o=k*4;
+        data[o]   = Math.min(255, Math.max(0, R|0));
+        data[o+1] = Math.min(255, Math.max(0, G|0));
+        data[o+2] = Math.min(255, Math.max(0, B|0));
+        data[o+3] = 255;
+      }
+    }
+    ctx.putImageData(img,0,0);
+    ctx.imageSmoothingEnabled=false;
+    ctx.drawImage(cv,0,0,W,H,0,0,cv.width,cv.height);
+  }
+
+  let last=performance.now();
+  function loop(tms){
+    const dt=Math.min(0.033,(tms-last)/1000);
+    last=tms;
+    step(dt);
+    render();
+    requestAnimationFrame(loop);
+  }
+  requestAnimationFrame(loop);
+})();
+</script>
+
