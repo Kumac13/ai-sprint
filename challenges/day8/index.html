@@ -1,0 +1,87 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>ドラッグ可能なチェキフレーム</title>
+<style>
+  body { margin:0; background:#111; display:flex; justify-content:center; align-items:center; height:100vh; }
+  canvas { border:1px solid #444; cursor:move; }
+</style>
+<canvas id="cv" width="640" height="480"></canvas>
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+
+const imgA = new Image();
+const imgB = new Image();
+
+// 2枚の異なる画像
+imgA.src = "https://picsum.photos/seed/pic1/640/480"; // 背景（フレーム内で見える）
+imgB.src = "https://picsum.photos/seed/pic2/640/480"; // 前景（フレーム外で見える）
+
+// チェキフレームの位置とサイズ
+let frame = { x: 170, y: 90, w: 300, h: 300 };
+let dragging = false;
+let offsetX = 0, offsetY = 0;
+
+Promise.all([
+  new Promise(r => imgA.onload = r),
+  new Promise(r => imgB.onload = r)
+]).then(() => {
+  draw();
+  setupDrag();
+});
+
+function draw() {
+  ctx.clearRect(0, 0, cv.width, cv.height);
+
+  // 1. 前景画像を全体に描画
+  ctx.drawImage(imgB, 0, 0, cv.width, cv.height);
+
+  // 2. フレーム内の領域だけ背景画像を表示
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(frame.x + 20, frame.y + 20, frame.w - 40, frame.h - 60);
+  ctx.clip();
+  ctx.drawImage(imgA, 0, 0, cv.width, cv.height);
+  ctx.restore();
+
+  // 3. チェキフレーム枠を最前面に描画
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(frame.x, frame.y, frame.w, 20); // 上
+  ctx.fillRect(frame.x, frame.y, 20, frame.h); // 左
+  ctx.fillRect(frame.x + frame.w - 20, frame.y, 20, frame.h); // 右
+  ctx.fillRect(frame.x, frame.y + frame.h - 60, frame.w, 60); // 下
+}
+
+function setupDrag() {
+  cv.addEventListener('mousedown', e => {
+    const rect = cv.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    if (mx >= frame.x && mx <= frame.x + frame.w && my >= frame.y && my <= frame.y + frame.h) {
+      dragging = true;
+      offsetX = mx - frame.x;
+      offsetY = my - frame.y;
+    }
+  });
+
+  cv.addEventListener('mousemove', e => {
+    if (dragging) {
+      const rect = cv.getBoundingClientRect();
+      frame.x = e.clientX - rect.left - offsetX;
+      frame.y = e.clientY - rect.top - offsetY;
+
+      // キャンバス外にも移動可能（範囲を大きく）
+      frame.x = Math.max(-frame.w + 50, Math.min(cv.width - 50, frame.x));
+      frame.y = Math.max(-frame.h + 50, Math.min(cv.height - 50, frame.y));
+
+      draw();
+    }
+  });
+
+  cv.addEventListener('mouseup', () => {
+    dragging = false;
+  });
+}
+</script>
+
