@@ -1,6 +1,6 @@
 {
   "updated": "2025-10-19T08:05:00.000Z",
-  "total": 7,
+  "total": 8,
   "days": [
     {
       "number": 1,
@@ -56,6 +56,14 @@
       "title": "[Sensitive] 漂流する群衆受け入れシミュレーター",
       "theme": "漂流",
       "created": "2025-10-23T23:14:00.000Z"
+    },
+    {
+      "number": 8,
+      "folder": "day7",
+      "url": "day7/",
+      "title": "透過するフレーム",
+      "theme": "透過",
+      "created": "2025-10-24T23:17:00.000Z"
     }
   ]
 }
