@@ -59,11 +59,19 @@
     },
     {
       "number": 8,
-      "folder": "day7",
-      "url": "day7/",
+      "folder": "day8",
+      "url": "day8/",
       "title": "透過するフレーム",
       "theme": "透過",
       "created": "2025-10-24T23:17:00.000Z"
+    },
+    {
+      "number": 9,
+      "folder": "day9",
+      "url": "day9/",
+      "title": "余白に書き込むノート",
+      "theme": "余白",
+      "created": "2025-10-25T11:26:00.000Z"
     }
   ]
 }
