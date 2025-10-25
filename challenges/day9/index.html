@@ -1,0 +1,212 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>余白メモ帳 — Single Page Edition</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    --page-w: 840px;
+    --page-h: 1188px;
+    --margin: 120px;
+    --fg: #111;
+    --bg: #f7f7f7;
+    --paper: #fff;
+    --accent: #d0d0d0;
+  }
+  html, body { height: 100%; overflow: hidden; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    display: grid; place-items: center; padding: 24px;
+  }
+  .page {
+    position: relative;
+    width: var(--page-w);
+    height: var(--page-h);
+    background: var(--paper);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .core {
+    position: absolute;
+    inset: var(--margin);
+    background: var(--paper);
+    padding: 32px 40px;
+    font-family: "Yu Mincho", "Hiragino Mincho ProN", "Noto Serif JP", serif;
+    line-height: 1.9;
+    font-size: 18px;
+    color: #222;
+    text-align: justify;
+    text-justify: inter-ideograph;
+    overflow: hidden;
+    pointer-events: none;
+    user-select: none;
+  }
+  .core p { margin: 0 0 1.2em 0; text-indent: 1em; }
+  .core p.lead { text-indent: 0; }
+
+  .margin { position: absolute; padding: 10px; overflow: hidden; }
+  .margin[contenteditable="true"]:focus { outline: 2px solid #a3c8ff; }
+  .margin.empty::before {
+    content: attr(data-placeholder);
+    color: #aaa; pointer-events: none; font-size: 12px;
+  }
+  .margin.top    { top: 0; left: 0; right: 0; height: var(--margin); }
+  .margin.bottom { bottom: 0; left: 0; right: 0; height: var(--margin); }
+  .margin.left   { top: var(--margin); bottom: var(--margin); left: 0; width: var(--margin); writing-mode: vertical-rl; }
+  .margin.right  { top: var(--margin); bottom: var(--margin); right: 0; width: var(--margin); writing-mode: vertical-rl; }
+
+  .margin.diagonal {
+    width: 180px;
+    height: 30px;
+    font-size: 13px;
+    z-index: 10;
+    padding: 6px 10px;
+    cursor: text;
+  }
+  .margin.top-left {
+    top: 50px;
+    left: 50px;
+    transform: rotate(-45deg);
+  }
+  .margin.top-right {
+    top: 50px;
+    right: 50px;
+    transform: rotate(45deg);
+  }
+  .margin.bottom-left {
+    bottom: 50px;
+    left: 50px;
+    transform: rotate(45deg);
+  }
+  .margin.bottom-right {
+    bottom: 50px;
+    right: 50px;
+    transform: rotate(-45deg);
+  }
+
+  .export-btn {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: var(--fg);
+    color: var(--paper);
+    border: none;
+    padding: 12px 24px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 100;
+  }
+  .export-btn:hover {
+    background: #333;
+  }
+</style>
+
+<div class="page">
+  <div class="core" aria-hidden="true">
+    <p class="lead">夜明け前の図書館に、まだ開かれていない本が一冊置かれていました。風も音もないその場所で、ページは静かに閉じたまま、わずかに光を吸っています。誰も触れないうちに、文字の輪郭だけが呼吸のように震えていました。</p>
+    <p>その本には、物語がありません。章も見出しもなく、紙はただ白く続くだけです。けれどページの端には、手の跡のような灰色の影がありました。そこには、誰かが書こうとして書けなかった言葉が、滲んでいます。</p>
+    <p>私はその影のひとつを指でなぞりました。指先が触れた途端、影は音を出しました。音は小さな雨のようで、紙の繊維に沁み込みながら、かすかな旋律を残しました。余白の中でしか聞こえない音でした。</p>
+    <p>ページの中央に目をやると、何もありません。けれど何もないということが、こんなにも重いのだと、そのとき知りました。空白は沈黙ではなく、息をひそめた記憶の層でした。</p>
+    <p>私は一行も書かずに本を閉じました。閉じた後、ページの端がゆっくりと明滅しました。それはまるで心臓の鼓動のようで、私はその光を見つめながら、まだ書かれていない言葉のことを考えました。</p>
+    <p>本の余白には、すでに無数の物語が眠っています。誰のものでもなく、まだ音にならない、静かな前夜のような物語が。あなたが書くのは、その眠りをそっと揺らすための、小さな指先の動きだけです。</p>
+  </div>
+  <div id="mTop" class="margin top" contenteditable="true"></div>
+  <div id="mBottom" class="margin bottom" contenteditable="true"></div>
+  <div id="mLeft" class="margin left" contenteditable="true"></div>
+  <div id="mRight" class="margin right" contenteditable="true"></div>
+  <div id="mTopLeft" class="margin diagonal top-left" contenteditable="true"></div>
+  <div id="mTopRight" class="margin diagonal top-right" contenteditable="true"></div>
+  <div id="mBottomLeft" class="margin diagonal bottom-left" contenteditable="true"></div>
+  <div id="mBottomRight" class="margin diagonal bottom-right" contenteditable="true"></div>
+</div>
+
+<button class="export-btn" onclick="exportPage()">エクスポート</button>
+
+<script>
+// エクスポート機能
+document.addEventListener('keydown', function(e) {
+  // Ctrl+E または Cmd+E でエクスポート
+  if ((e.ctrlKey || e.metaKey) && e.key === 'e') {
+    e.preventDefault();
+    exportPage();
+  }
+});
+
+function exportPage() {
+  const choice = prompt('エクスポート形式を選択:\n1: 画像(PNG)\n2: HTML\n3: テキスト', '1');
+
+  if (choice === '1') {
+    exportAsImage();
+  } else if (choice === '2') {
+    exportAsHTML();
+  } else if (choice === '3') {
+    exportAsText();
+  }
+}
+
+function exportAsImage() {
+  const page = document.querySelector('.page');
+
+  // html2canvasがない場合は、代替として手動でキャンバスに描画
+  // まずは簡単なHTMLダウンロードを提供
+  alert('画像エクスポートにはhtml2canvasライブラリが必要です。HTMLエクスポートをお試しください。');
+}
+
+function exportAsHTML() {
+  const clone = document.documentElement.cloneNode(true);
+  const html = '<!DOCTYPE html>\n' + clone.outerHTML;
+
+  const blob = new Blob([html], { type: 'text/html' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'margin-note-' + new Date().toISOString().slice(0, 10) + '.html';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAsText() {
+  const margins = ['mTop', 'mBottom', 'mLeft', 'mRight', 'mTopLeft', 'mTopRight', 'mBottomLeft', 'mBottomRight'];
+  let text = '=== 余白メモ帳 ===\n\n';
+
+  margins.forEach(id => {
+    const el = document.getElementById(id);
+    const content = el.textContent.trim();
+    if (content) {
+      const label = {
+        'mTop': '上',
+        'mBottom': '下',
+        'mLeft': '左',
+        'mRight': '右',
+        'mTopLeft': '左上（斜め）',
+        'mTopRight': '右上（斜め）',
+        'mBottomLeft': '左下（斜め）',
+        'mBottomRight': '右下（斜め）'
+      }[id];
+      text += `[${label}]\n${content}\n\n`;
+    }
+  });
+
+  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'margin-note-' + new Date().toISOString().slice(0, 10) + '.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// empty クラスの管理
+document.querySelectorAll('.margin[contenteditable]').forEach(el => {
+  el.classList.toggle('empty', !el.textContent.trim());
+
+  el.addEventListener('input', function() {
+    this.classList.toggle('empty', !this.textContent.trim());
+  });
+});
+</script>
