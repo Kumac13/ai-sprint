@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Point of No Return</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 40px;
+            background: #1a1a1a;
+            color: #fff;
+            font-family: 'Courier New', monospace;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        svg {
+            display: block;
+            margin: 0 auto;
+            background: #000;
+        }
+        .note {
+            text-align: center;
+            margin-top: 30px;
+            line-height: 1.8;
+        }
+        .invertible {
+            color: #4CAF50;
+        }
+        .non-invertible {
+            color: #F44336;
+        }
+    </style>
+</head>
+<body>
+    <h1>Point of No Return - 圏論的図式</h1>
+    <svg id="diagram" width="1000" height="300"></svg>
+    <div class="note">
+        <div><span class="invertible">緑: 可逆射（return射が存在）</span></div>
+        <div><span class="non-invertible">赤: 非可逆射（return射が存在しない）</span></div>
+        <div style="margin-top: 20px;">
+            Point of No Return = return射の存在性が失われる境界
+        </div>
+    </div>
+
+    <script>
+        const svg = document.getElementById('diagram');
+        const NS = 'http://www.w3.org/2000/svg';
+
+        const OBJECTS = 6; // s0 から s5
+        const THRESHOLD = 3; // Point of No Return
+        const SPACING = 150;
+        const START_X = 80;
+        const Y = 150;
+
+        // 矢印マーカーを定義
+        function createMarker(id, color) {
+            const defs = svg.querySelector('defs') || svg.appendChild(document.createElementNS(NS, 'defs'));
+            const marker = document.createElementNS(NS, 'marker');
+            marker.setAttribute('id', id);
+            marker.setAttribute('markerWidth', '10');
+            marker.setAttribute('markerHeight', '10');
+            marker.setAttribute('refX', '9');
+            marker.setAttribute('refY', '3');
+            marker.setAttribute('orient', 'auto');
+            marker.setAttribute('markerUnits', 'strokeWidth');
+
+            const path = document.createElementNS(NS, 'path');
+            path.setAttribute('d', 'M0,0 L0,6 L9,3 z');
+            path.setAttribute('fill', color);
+
+            marker.appendChild(path);
+            defs.appendChild(marker);
+        }
+
+        createMarker('arrow-green', '#4CAF50');
+        createMarker('arrow-red', '#F44336');
+
+        // 対象（点）を描画
+        for (let i = 0; i < OBJECTS; i++) {
+            const x = START_X + i * SPACING;
+
+            // 円
+            const circle = document.createElementNS(NS, 'circle');
+            circle.setAttribute('cx', x);
+            circle.setAttribute('cy', Y);
+            circle.setAttribute('r', 25);
+            circle.setAttribute('fill', 'none');
+            circle.setAttribute('stroke', '#fff');
+            circle.setAttribute('stroke-width', '2');
+            svg.appendChild(circle);
+
+            // ラベル
+            const text = document.createElementNS(NS, 'text');
+            text.setAttribute('x', x);
+            text.setAttribute('y', Y + 5);
+            text.setAttribute('text-anchor', 'middle');
+            text.setAttribute('fill', '#fff');
+            text.setAttribute('font-size', '16');
+            text.textContent = `s${i}`;
+            svg.appendChild(text);
+        }
+
+        // 射（矢印）を描画
+        for (let i = 0; i < OBJECTS - 1; i++) {
+            const x1 = START_X + i * SPACING;
+            const x2 = START_X + (i + 1) * SPACING;
+            const isInvertible = i < THRESHOLD;
+            const color = isInvertible ? '#4CAF50' : '#F44336';
+            const marker = isInvertible ? 'arrow-green' : 'arrow-red';
+
+            // forward 射 (上側の矢印)
+            const forward = document.createElementNS(NS, 'line');
+            forward.setAttribute('x1', x1 + 25);
+            forward.setAttribute('y1', Y - 10);
+            forward.setAttribute('x2', x2 - 25);
+            forward.setAttribute('y2', Y - 10);
+            forward.setAttribute('stroke', color);
+            forward.setAttribute('stroke-width', '2');
+            forward.setAttribute('marker-end', `url(#${marker})`);
+            svg.appendChild(forward);
+
+            // forward ラベル
+            const forwardLabel = document.createElementNS(NS, 'text');
+            forwardLabel.setAttribute('x', (x1 + x2) / 2);
+            forwardLabel.setAttribute('y', Y - 20);
+            forwardLabel.setAttribute('text-anchor', 'middle');
+            forwardLabel.setAttribute('fill', color);
+            forwardLabel.setAttribute('font-size', '12');
+            forwardLabel.textContent = 'f';
+            svg.appendChild(forwardLabel);
+
+            // return 射 (下側の矢印) - Point of No Return まで
+            if (isInvertible) {
+                const returnArrow = document.createElementNS(NS, 'line');
+                returnArrow.setAttribute('x1', x2 - 25);
+                returnArrow.setAttribute('y1', Y + 10);
+                returnArrow.setAttribute('x2', x1 + 25);
+                returnArrow.setAttribute('y2', Y + 10);
+                returnArrow.setAttribute('stroke', color);
+                returnArrow.setAttribute('stroke-width', '2');
+                returnArrow.setAttribute('marker-end', `url(#${marker})`);
+                svg.appendChild(returnArrow);
+
+                // return ラベル
+                const returnLabel = document.createElementNS(NS, 'text');
+                returnLabel.setAttribute('x', (x1 + x2) / 2);
+                returnLabel.setAttribute('y', Y + 30);
+                returnLabel.setAttribute('text-anchor', 'middle');
+                returnLabel.setAttribute('fill', color);
+                returnLabel.setAttribute('font-size', '12');
+                returnLabel.textContent = 'r';
+                svg.appendChild(returnLabel);
+            }
+        }
+
+        // Point of No Return の境界線
+        const boundaryX = START_X + THRESHOLD * SPACING - SPACING / 2;
+        const boundary = document.createElementNS(NS, 'line');
+        boundary.setAttribute('x1', boundaryX);
+        boundary.setAttribute('y1', 50);
+        boundary.setAttribute('x2', boundaryX);
+        boundary.setAttribute('y2', 250);
+        boundary.setAttribute('stroke', '#FFC107');
+        boundary.setAttribute('stroke-width', '3');
+        boundary.setAttribute('stroke-dasharray', '5,5');
+        svg.appendChild(boundary);
+
+        // 境界ラベル
+        const boundaryLabel = document.createElementNS(NS, 'text');
+        boundaryLabel.setAttribute('x', boundaryX);
+        boundaryLabel.setAttribute('y', 30);
+        boundaryLabel.setAttribute('text-anchor', 'middle');
+        boundaryLabel.setAttribute('fill', '#FFC107');
+        boundaryLabel.setAttribute('font-size', '14');
+        boundaryLabel.setAttribute('font-weight', 'bold');
+        boundaryLabel.textContent = '⚠ Point of No Return';
+        svg.appendChild(boundaryLabel);
+    </script>
+</body>
+</html>
