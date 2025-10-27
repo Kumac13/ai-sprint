@@ -1,0 +1,316 @@
+
+<!doctype html>
+<meta charset="utf-8" />
+<title>2D Shadow Simulator - Square + Draggable Light</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { display: grid; place-items: center; background: #0e0f12; color: #eee; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto; }
+  .panel { width: min(820px, 96vw); }
+  #cv { width: 100%; height: auto; border: 1px solid #2b2d31; background: #0b0c10; display: block; }
+  .ui { display: flex; gap: 12px; align-items: center; margin: 10px 0 6px; flex-wrap: wrap; }
+  .ui small { opacity: 0.8; }
+  label { font-size: 12px; display: flex; align-items: center; gap: 6px; }
+  input[type=range] { width: 160px; }
+</style>
+<div class="panel">
+  <div class="ui">
+    <small>ライト（白点）をドラッグで移動できます。影（半透明グレー）はキャンバス端でクリップします。</small>
+    <label>正方形サイズ <input id="size" type="range" min="40" max="280" value="160" /></label>
+    <button id="addSquare">正方形を追加</button>
+  </div>
+  <canvas id="cv" width="800" height="500" aria-label="2D Shadow Simulator"></canvas>
+</div>
+<script>
+(() => {
+  const W = 800, H = 500;
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const sizeInput = document.getElementById('size');
+
+  const state = {
+    light: { x: 200, y: 80 },    // 初期ライト位置
+    groundY: H - 80,             // 地面の高さ（下部）
+    squares: [                   // 正方形の配列
+      { x: W/2, half: 80 }
+    ],
+    draggingLight: false,
+    draggingSquare: null,        // ドラッグ中の正方形のインデックス
+    dragOffset: { x: 0, y: 0 }
+  };
+  const addSquareBtn = document.getElementById('addSquare');
+
+  sizeInput.addEventListener('input', () => {
+    const newHalf = +sizeInput.value / 2;
+    // 全ての正方形のサイズを変更
+    state.squares.forEach(sq => sq.half = newHalf);
+    draw();
+  });
+
+  addSquareBtn.addEventListener('click', () => {
+    // ランダムな位置に新しい正方形を追加
+    const newX = Math.random() * (W - 200) + 100;
+    const newHalf = +sizeInput.value / 2;
+    state.squares.push({ x: newX, half: newHalf });
+    draw();
+  });
+
+  // ユーティリティ
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function rayToCanvasBounds(L, V){
+    // キャンバス矩形 [0,W]x[0,H]
+    return rayToRectBounds(L, V, { xmin:0, xmax:W, ymin:0, ymax:H });
+  }
+
+  function rayToRectBounds(L, V, rect){
+    // L + t*(V-L) が rect の境界に当たる最小 t>1 を返します
+    const dx = V.x - L.x, dy = V.y - L.y;
+    const ts = [];
+    const EPS = 1e-6;
+    // 垂直境界
+    if (Math.abs(dx) > EPS){
+      const tL = (rect.xmin - L.x)/dx; const yL = L.y + tL*dy; if (tL > 1 && yL >= rect.ymin - EPS && yL <= rect.ymax + EPS) ts.push({t:tL, x:rect.xmin, y:yL});
+      const tR = (rect.xmax - L.x)/dx; const yR = L.y + tR*dy; if (tR > 1 && yR >= rect.ymin - EPS && yR <= rect.ymax + EPS) ts.push({t:tR, x:rect.xmax, y:yR});
+    }
+    // 水平境界
+    if (Math.abs(dy) > EPS){
+      const tT = (rect.ymin - L.y)/dy; const xT = L.x + tT*dx; if (tT > 1 && xT >= rect.xmin - EPS && xT <= rect.xmax + EPS) ts.push({t:tT, x:xT, y:rect.ymin});
+      const tB = (rect.ymax - L.y)/dy; const xB = L.x + tB*dx; if (tB > 1 && xB >= rect.xmin - EPS && xB <= rect.xmax + EPS) ts.push({t:tB, x:xB, y:rect.ymax});
+    }
+    if (ts.length === 0) return { x: V.x, y: V.y };
+    ts.sort((a,b)=>a.t-b.t);
+    return { x: ts[0].x, y: ts[0].y };
+  }
+
+  function squareVertices(c, half){
+    // 時計回り: 左上, 右上, 右下, 左下
+    return [
+      { x: c.x - half, y: c.y - half },
+      { x: c.x + half, y: c.y - half },
+      { x: c.x + half, y: c.y + half },
+      { x: c.x - half, y: c.y + half }
+    ];
+  }
+
+  function extremeIndicesFromLight(L, verts){
+    // 頂点からライトへの角度を算出
+    let ang = verts.map(v => Math.atan2(v.y - L.y, v.x - L.x));
+    // 2通り（0基準／2π持ち上げ）を比較し、スパンが最小の方を採用
+    function spanInfo(shift){
+      const a = ang.map(A => A + (shift && A < 0 ? Math.PI*2 : 0));
+      let minA = +Infinity, maxA = -Infinity, iMin = -1, iMax = -1;
+      for (let i=0;i<a.length;i++){
+        if (a[i] < minA){ minA = a[i]; iMin = i; }
+        if (a[i] > maxA){ maxA = a[i]; iMax = i; }
+      }
+      return { span: maxA - minA, iMin, iMax };
+    }
+    const s0 = spanInfo(false);
+    const s1 = spanInfo(true);
+    const pick = (s1.span < s0.span) ? s1 : s0;
+    return { iMin: pick.iMin, iMax: pick.iMax };
+  }
+
+  function walkIndicesCW(i, j, n){
+    const path = [i];
+    let k = i;
+    while (k !== j){ k = (k+1)%n; path.push(k); }
+    return path;
+  }
+  function walkIndicesCCW(i, j, n){
+    const path = [i];
+    let k = i;
+    while (k !== j){ k = (k-1+n)%n; path.push(k); }
+    return path;
+  }
+
+  function rayToGroundPlane(L, V){
+    // 光源Lから頂点Vを通る光線が地面（y = groundY）と交差する点を求める
+    const GY = state.groundY;
+
+    const dy = V.y - L.y;
+    const dx = V.x - L.x;
+
+    // 光線が地面に到達しない場合（光源が地面より下、または光線が上向き）
+    if (L.y >= GY || dy <= 0) return null;
+
+    // t は L + t*(V-L) が地面に到達する係数
+    const t = (GY - L.y) / dy;
+    const x = L.x + t * dx;
+
+    // キャンバス外にはみ出る場合はクリップ
+    return { x: clamp(x, 0, W), y: GY };
+  }
+
+  function computeShadowPolygon(L, verts){
+    // 光源が正方形より下にある場合、影は描画しない
+    const topY = Math.min(...verts.map(v => v.y));
+    if (L.y >= topY) return null;
+
+    // ライトから見た接線頂点（両端）を取得
+    const { iMin, iMax } = extremeIndicesFromLight(L, verts);
+    const n = verts.length;
+    // 2 方向のうち短い方の辺列を採用
+    const cw = walkIndicesCW(iMin, iMax, n);
+    const ccw = walkIndicesCCW(iMin, iMax, n);
+    const chain = (cw.length <= ccw.length) ? cw : ccw; // 遮蔽辺列
+
+    const Vmin = verts[iMin];
+    const Vmax = verts[iMax];
+    const PfarMin = rayToGroundPlane(L, Vmin);
+    const PfarMax = rayToGroundPlane(L, Vmax);
+
+    // 影が地面に到達しない場合
+    if (!PfarMin || !PfarMax) return null;
+
+    // ポリゴン: 遮蔽辺列（Vmin→...→Vmax）→ PfarMax → PfarMin
+    const poly = chain.map(idx => verts[idx]);
+    poly.push(PfarMax);
+    poly.push(PfarMin);
+    return poly;
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // 地面と空
+    const GY = state.groundY;
+    // 空
+    ctx.fillStyle = '#0b0c10';
+    ctx.fillRect(0,0,W,GY);
+    // 地面
+    ctx.fillStyle = '#12161c';
+    ctx.fillRect(0,GY,W,H-GY);
+    // 地面ライン
+    ctx.strokeStyle = '#2f333a';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(0,GY+0.5); ctx.lineTo(W,GY+0.5); ctx.stroke();
+    // 地面の目地
+    ctx.save();
+    ctx.strokeStyle = '#1b2027';
+    ctx.lineWidth = 1;
+    for (let x=0; x<=W; x+=25){ ctx.beginPath(); ctx.moveTo(x,GY); ctx.lineTo(x,H); ctx.stroke(); }
+    for (let y=GY; y<=H; y+=25){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
+    ctx.restore();
+
+    // まず全ての影を描画
+    state.squares.forEach((sq, idx) => {
+      const squareCenter = { x: sq.x, y: GY - sq.half };
+      const verts = squareVertices(squareCenter, sq.half);
+
+      // 影ポリゴン
+      const shadowPoly = computeShadowPolygon(state.light, verts);
+      if (shadowPoly) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(80,80,80,0.4)';
+        ctx.beginPath();
+        ctx.moveTo(shadowPoly[0].x, shadowPoly[0].y);
+        for (let i=1;i<shadowPoly.length;i++) ctx.lineTo(shadowPoly[i].x, shadowPoly[i].y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    });
+
+    // 次に全ての正方形を描画
+    state.squares.forEach((sq, idx) => {
+      const squareCenter = { x: sq.x, y: GY - sq.half };
+      const verts = squareVertices(squareCenter, sq.half);
+
+      // 正方形本体
+      ctx.save();
+      ctx.fillStyle = '#3a9ad9';
+      ctx.strokeStyle = '#87c2f1';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(verts[0].x, verts[0].y);
+      for (let i=1;i<verts.length;i++) ctx.lineTo(verts[i].x, verts[i].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    });
+
+    // ライト
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.strokeStyle = '#dddddd';
+    ctx.beginPath();
+    ctx.arc(state.light.x, state.light.y, 6, 0, Math.PI*2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+
+    // 注記
+    ctx.save();
+    ctx.fillStyle = '#ddd';
+    ctx.font = '12px system-ui, ui-sans-serif, -apple-system';
+    ctx.fillText(`Light: (${Math.round(state.light.x)}, ${Math.round(state.light.y)})`, 10, 18);
+    ctx.fillText(`Squares: ${state.squares.length}`, 10, 34);
+    ctx.restore();
+  }
+
+  // ドラッグ操作
+  function isOnLight(x,y){
+    const dx = x - state.light.x, dy = y - state.light.y; return (dx*dx + dy*dy) <= 9*9;
+  }
+  function findSquareAt(x, y){
+    const GY = state.groundY;
+    for (let i = state.squares.length - 1; i >= 0; i--){
+      const sq = state.squares[i];
+      const cx = sq.x;
+      const cy = GY - sq.half;
+      if (x >= cx - sq.half && x <= cx + sq.half && y >= cy - sq.half && y <= cy + sq.half){
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  cv.addEventListener('pointerdown', (e) => {
+    const rect = cv.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (cv.width/rect.width);
+    const y = (e.clientY - rect.top) * (cv.height/rect.height);
+
+    if (isOnLight(x,y)){
+      state.draggingLight = true;
+      state.dragOffset.x = x - state.light.x;
+      state.dragOffset.y = y - state.light.y;
+      cv.setPointerCapture(e.pointerId);
+    } else {
+      const sqIdx = findSquareAt(x, y);
+      if (sqIdx !== -1){
+        state.draggingSquare = sqIdx;
+        state.dragOffset.x = x - state.squares[sqIdx].x;
+        state.dragOffset.y = 0;
+        cv.setPointerCapture(e.pointerId);
+      }
+    }
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!state.draggingLight && state.draggingSquare === null) return;
+    const rect = cv.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (cv.width/rect.width);
+    const y = (e.clientY - rect.top) * (cv.height/rect.height);
+
+    if (state.draggingLight){
+      state.light.x = clamp(x - state.dragOffset.x, 0, W);
+      state.light.y = clamp(y - state.dragOffset.y, 0, H);
+    } else if (state.draggingSquare !== null){
+      state.squares[state.draggingSquare].x = clamp(x - state.dragOffset.x, 0, W);
+    }
+    draw();
+  });
+  cv.addEventListener('pointerup', (e) => {
+    state.draggingLight = false;
+    state.draggingSquare = null;
+    cv.releasePointerCapture?.(e.pointerId);
+  });
+  cv.addEventListener('pointerleave', () => {
+    state.draggingLight = false;
+    state.draggingSquare = null;
+  });
+
+  // 初回描画
+  draw();
+})();
+</script>
