@@ -16,6 +16,7 @@
   <div class="ui">
     <small>ライト（白点）をドラッグで移動できます。影（半透明グレー）はキャンバス端でクリップします。</small>
     <label>正方形サイズ <input id="size" type="range" min="40" max="280" value="160" /></label>
+    <button id="addSquare">正方形を追加</button>
   </div>
   <canvas id="cv" width="800" height="500" aria-label="2D Shadow Simulator"></canvas>
 </div>
@@ -28,16 +29,28 @@
 
   const state = {
     light: { x: 200, y: 80 },    // 初期ライト位置
-    half: 80,                    // 正方形の半径（半辺）
     groundY: H - 80,             // 地面の高さ（下部）
-    squareCenter: { x: W/2, y: H - 80 - 80 }, // 初期は地面に接地（bottom = groundY）
-    dragging: false,
+    squares: [                   // 正方形の配列
+      { x: W/2, half: 80 }
+    ],
+    draggingLight: false,
+    draggingSquare: null,        // ドラッグ中の正方形のインデックス
     dragOffset: { x: 0, y: 0 }
   };
+  const addSquareBtn = document.getElementById('addSquare');
+
   sizeInput.addEventListener('input', () => {
-    state.half = +sizeInput.value / 2;
-    // 正方形の底面が常に地面 y=groundY に接するように調整
-    state.squareCenter.y = state.groundY - state.half;
+    const newHalf = +sizeInput.value / 2;
+    // 全ての正方形のサイズを変更
+    state.squares.forEach(sq => sq.half = newHalf);
+    draw();
+  });
+
+  addSquareBtn.addEventListener('click', () => {
+    // ランダムな位置に新しい正方形を追加
+    const newX = Math.random() * (W - 200) + 100;
+    const newHalf = +sizeInput.value / 2;
+    state.squares.push({ x: newX, half: newHalf });
     draw();
   });
 
@@ -113,11 +126,13 @@
   function rayToGroundPlane(L, V){
     // 光源Lから頂点Vを通る光線が地面（y = groundY）と交差する点を求める
     const GY = state.groundY;
-    // 光源が地面より下、または光線が上向きの場合は頂点そのものを返す
-    if (L.y >= GY || V.y <= L.y) return { x: V.x, y: V.y };
 
     const dy = V.y - L.y;
     const dx = V.x - L.x;
+
+    // 光線が地面に到達しない場合（光源が地面より下、または光線が上向き）
+    if (L.y >= GY || dy <= 0) return null;
+
     // t は L + t*(V-L) が地面に到達する係数
     const t = (GY - L.y) / dy;
     const x = L.x + t * dx;
@@ -127,6 +142,10 @@
   }
 
   function computeShadowPolygon(L, verts){
+    // 光源が正方形より下にある場合、影は描画しない
+    const topY = Math.min(...verts.map(v => v.y));
+    if (L.y >= topY) return null;
+
     // ライトから見た接線頂点（両端）を取得
     const { iMin, iMax } = extremeIndicesFromLight(L, verts);
     const n = verts.length;
@@ -139,6 +158,9 @@
     const Vmax = verts[iMax];
     const PfarMin = rayToGroundPlane(L, Vmin);
     const PfarMax = rayToGroundPlane(L, Vmax);
+
+    // 影が地面に到達しない場合
+    if (!PfarMin || !PfarMax) return null;
 
     // ポリゴン: 遮蔽辺列（Vmin→...→Vmax）→ PfarMax → PfarMin
     const poly = chain.map(idx => verts[idx]);
@@ -170,34 +192,43 @@
     for (let y=GY; y<=H; y+=25){ ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
     ctx.restore();
 
-    // 正方形（底辺が地面に接する）
-    const verts = squareVertices(state.squareCenter, state.half);
+    // まず全ての影を描画
+    state.squares.forEach((sq, idx) => {
+      const squareCenter = { x: sq.x, y: GY - sq.half };
+      const verts = squareVertices(squareCenter, sq.half);
 
-    // 影ポリゴン（地面矩形にクリップされた遠方点）
-    const shadowPoly = computeShadowPolygon(state.light, verts);
-    ctx.save();
-    ctx.fillStyle = 'rgba(200,200,200,0.25)';
-    ctx.strokeStyle = 'rgba(220,220,220,0.35)';
-    ctx.beginPath();
-    ctx.moveTo(shadowPoly[0].x, shadowPoly[0].y);
-    for (let i=1;i<shadowPoly.length;i++) ctx.lineTo(shadowPoly[i].x, shadowPoly[i].y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+      // 影ポリゴン
+      const shadowPoly = computeShadowPolygon(state.light, verts);
+      if (shadowPoly) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(80,80,80,0.4)';
+        ctx.beginPath();
+        ctx.moveTo(shadowPoly[0].x, shadowPoly[0].y);
+        for (let i=1;i<shadowPoly.length;i++) ctx.lineTo(shadowPoly[i].x, shadowPoly[i].y);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    });
 
-    // 正方形本体
-    ctx.save();
-    ctx.fillStyle = '#3a9ad9';
-    ctx.strokeStyle = '#87c2f1';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(verts[0].x, verts[0].y);
-    for (let i=1;i<verts.length;i++) ctx.lineTo(verts[i].x, verts[i].y);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-    ctx.restore();
+    // 次に全ての正方形を描画
+    state.squares.forEach((sq, idx) => {
+      const squareCenter = { x: sq.x, y: GY - sq.half };
+      const verts = squareVertices(squareCenter, sq.half);
+
+      // 正方形本体
+      ctx.save();
+      ctx.fillStyle = '#3a9ad9';
+      ctx.strokeStyle = '#87c2f1';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(verts[0].x, verts[0].y);
+      for (let i=1;i<verts.length;i++) ctx.lineTo(verts[i].x, verts[i].y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    });
 
     // ライト
     ctx.save();
@@ -207,16 +238,6 @@
     ctx.arc(state.light.x, state.light.y, 6, 0, Math.PI*2);
     ctx.fill();
     ctx.stroke();
-
-    // ライトからの補助線（接線）
-    const { iMin, iMax } = extremeIndicesFromLight(state.light, verts);
-    const L = state.light;
-    const P1 = rayToCanvasBounds(L, verts[iMin]);
-    const P2 = rayToCanvasBounds(L, verts[iMax]);
-    ctx.globalAlpha = 0.6;
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(L.x, L.y); ctx.lineTo(P1.x, P1.y); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(L.x, L.y); ctx.lineTo(P2.x, P2.y); ctx.stroke();
     ctx.restore();
 
     // 注記
@@ -224,7 +245,7 @@
     ctx.fillStyle = '#ddd';
     ctx.font = '12px system-ui, ui-sans-serif, -apple-system';
     ctx.fillText(`Light: (${Math.round(state.light.x)}, ${Math.round(state.light.y)})`, 10, 18);
-    ctx.fillText(`Square half: ${state.half}px`, 10, 34);
+    ctx.fillText(`Squares: ${state.squares.length}`, 10, 34);
     ctx.restore();
   }
 
@@ -232,28 +253,62 @@
   function isOnLight(x,y){
     const dx = x - state.light.x, dy = y - state.light.y; return (dx*dx + dy*dy) <= 9*9;
   }
+  function findSquareAt(x, y){
+    const GY = state.groundY;
+    for (let i = state.squares.length - 1; i >= 0; i--){
+      const sq = state.squares[i];
+      const cx = sq.x;
+      const cy = GY - sq.half;
+      if (x >= cx - sq.half && x <= cx + sq.half && y >= cy - sq.half && y <= cy + sq.half){
+        return i;
+      }
+    }
+    return -1;
+  }
+
   cv.addEventListener('pointerdown', (e) => {
     const rect = cv.getBoundingClientRect();
     const x = (e.clientX - rect.left) * (cv.width/rect.width);
     const y = (e.clientY - rect.top) * (cv.height/rect.height);
+
     if (isOnLight(x,y)){
-      state.dragging = true;
+      state.draggingLight = true;
       state.dragOffset.x = x - state.light.x;
       state.dragOffset.y = y - state.light.y;
       cv.setPointerCapture(e.pointerId);
+    } else {
+      const sqIdx = findSquareAt(x, y);
+      if (sqIdx !== -1){
+        state.draggingSquare = sqIdx;
+        state.dragOffset.x = x - state.squares[sqIdx].x;
+        state.dragOffset.y = 0;
+        cv.setPointerCapture(e.pointerId);
+      }
     }
   });
   cv.addEventListener('pointermove', (e) => {
-    if (!state.dragging) return;
+    if (!state.draggingLight && state.draggingSquare === null) return;
     const rect = cv.getBoundingClientRect();
     const x = (e.clientX - rect.left) * (cv.width/rect.width);
     const y = (e.clientY - rect.top) * (cv.height/rect.height);
-    state.light.x = clamp(x - state.dragOffset.x, 0, W);
-    state.light.y = clamp(y - state.dragOffset.y, 0, H);
+
+    if (state.draggingLight){
+      state.light.x = clamp(x - state.dragOffset.x, 0, W);
+      state.light.y = clamp(y - state.dragOffset.y, 0, H);
+    } else if (state.draggingSquare !== null){
+      state.squares[state.draggingSquare].x = clamp(x - state.dragOffset.x, 0, W);
+    }
     draw();
   });
-  cv.addEventListener('pointerup', (e) => { state.dragging = false; cv.releasePointerCapture?.(e.pointerId); });
-  cv.addEventListener('pointerleave', () => { state.dragging = false; });
+  cv.addEventListener('pointerup', (e) => {
+    state.draggingLight = false;
+    state.draggingSquare = null;
+    cv.releasePointerCapture?.(e.pointerId);
+  });
+  cv.addEventListener('pointerleave', () => {
+    state.draggingLight = false;
+    state.draggingSquare = null;
+  });
 
   // 初回描画
   draw();
