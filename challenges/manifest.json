@@ -1,6 +1,6 @@
 {
   "updated": "2025-10-19T08:05:00.000Z",
-  "total": 8,
+  "total": 11,
   "days": [
     {
       "number": 1,
@@ -79,7 +79,15 @@
       "url": "day10/",
       "title": "Point of No Return",
       "theme": "分岐",
-      "created": "2025-10-25T11:26:00.000Z"
+      "created": "2025-10-26T11:26:00.000Z"
+    },
+    {
+      "number": 11,
+      "folder": "day11",
+      "url": "day11/",
+      "title": "霧のシミュレーション",
+      "theme": "霧",
+      "created": "2025-10-27T11:26:00.000Z"
     }
   ]
 }
