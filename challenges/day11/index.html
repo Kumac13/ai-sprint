@@ -1,0 +1,188 @@
+<!doctype html>
+<html>
+<meta charset="utf-8" />
+<title>Fog – 粒径×湿度×流動（Canvas）</title>
+<style>
+  html, body { margin:0; height:100%; overflow:hidden; background:#0b0b0b; }
+  #ui{ position:fixed; top:8px; left:8px; z-index:10; background:rgba(0,0,0,.45); color:#fff; font:12px system-ui,sans-serif; padding:8px 10px; border-radius:8px; }
+  #ui label{ display:flex; gap:8px; align-items:center; margin:6px 0; }
+  #ui input{ width:180px; }
+  canvas{ display:block; width:100vw; height:100vh; }
+</style>
+<body>
+<div id="ui">
+  <div style="font-weight:600;margin-bottom:4px;">霧 – 粒径と湿度</div>
+  <label>粒径(μm)
+    <input type="range" id="radius" min="0.1" max="10" step="0.1" value="2.0">
+    <span id="rVal">2.0</span>
+  </label>
+  <label>湿度RH
+    <input type="range" id="humidity" min="0" max="1" step="0.01" value="0.85">
+    <span id="hVal">0.85</span>
+  </label>
+</div>
+<canvas id="cv"></canvas>
+<script>
+(()=>{
+  const cv = document.getElementById('cv');
+  const ctx = cv.getContext('2d');
+  const rSlider = document.getElementById('radius');
+  const hSlider = document.getElementById('humidity');
+  const rVal = document.getElementById('rVal');
+  const hVal = document.getElementById('hVal');
+
+  let DPR=1, W=0, H=0;
+  function resize(){
+    DPR = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+    W = Math.floor(innerWidth * DPR);
+    H = Math.floor(innerHeight * DPR);
+    cv.width = W; cv.height = H;
+    cv.style.width = innerWidth + 'px';
+    cv.style.height = innerHeight + 'px';
+  }
+  addEventListener('resize', resize, {passive:true});
+  resize();
+
+  // 背景（簡易シーン）
+  function drawBackground(){
+    // 夜明けの空
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,'#0b0b10');
+    g.addColorStop(1,'#1a1a1f');
+    ctx.fillStyle = g;
+    ctx.fillRect(0,0,W,H);
+
+    // 遠景の樹列（視覚参照用）
+    ctx.save();
+    ctx.scale(DPR, DPR);
+    ctx.fillStyle = '#0f1416';
+    for(let i=0;i<20;i++){
+      const x = (i/19)*innerWidth;
+      const h = 60 + Math.random()*80;
+      drawTree(x, innerHeight*0.75, h);
+    }
+    ctx.restore();
+  }
+
+  function drawTree(x, baseY, h){
+    const w = Math.max(8, h*0.18);
+    ctx.fillRect(x-w*0.15, baseY-h, w*0.3, h);
+    for(let k=0;k<6;k++){
+      const r = (h*0.22) + k*(h*0.08);
+      ctx.beginPath();
+      ctx.ellipse(x, baseY-h*0.6 + k*(h*0.16), r, r*0.6, 0, 0, Math.PI*2);
+      ctx.fill();
+    }
+  }
+
+  // --- 2D Value Noise + fBm ---
+  function hash(i,j,k){
+    const s = Math.sin(i*127.1 + j*311.7 + k*74.7)*43758.5453;
+    return s - Math.floor(s);
+  }
+  function smooth(t){ return t*t*(3-2*t); }
+  function valueNoise(x,y,z){
+    const xi = Math.floor(x), yi = Math.floor(y);
+    const xf = x - xi,      yf = y - yi;
+    const v00 = hash(xi,   yi,   z);
+    const v10 = hash(xi+1, yi,   z);
+    const v01 = hash(xi,   yi+1, z);
+    const v11 = hash(xi+1, yi+1, z);
+    const sx = smooth(xf), sy = smooth(yf);
+    const ix0 = v00*(1-sx) + v10*sx;
+    const ix1 = v01*(1-sx) + v11*sx;
+    return ix0*(1-sy) + ix1*sy; // 0..1
+  }
+  function fbm(x,y,t){
+    let sum=0, amp=0.5, freq=1.0;
+    for(let o=0;o<4;o++){
+      sum += amp * valueNoise(x*freq, y*freq, Math.floor(t*freq));
+      amp *= 0.55; freq *= 2.02;
+    }
+    return sum; // 0..~1 (正規化は後段で)
+  }
+
+  // 霧マップを低解像度で生成し、拡大＋ブラーで柔らかくする
+  const FOG_W = 360, FOG_H = 200;
+  const fog = document.createElement('canvas');
+  fog.width = FOG_W; fog.height = FOG_H;
+  const fctx = fog.getContext('2d', { willReadFrequently:true });
+
+  let tPrev = performance.now();
+  let ox=0, oy=0; // 流動オフセット
+
+  function computeFog(dt){
+    const r = parseFloat(rSlider.value);
+    const RH = parseFloat(hSlider.value);
+    rVal.textContent = r.toFixed(1);
+    hVal.textContent = RH.toFixed(2);
+
+    // 風（緩やかな移動）
+    ox += 0.03 * dt/16;
+    oy += 0.01 * dt/16;
+
+    const img = fctx.createImageData(FOG_W, FOG_H);
+    const data = img.data;
+
+    // 簡易ミー散乱：粒径→前方散乱寄与（g）とβ(λ)スケール
+    function beta(lambdaNm){
+      const x = (2*Math.PI*(r*1e-6))/(lambdaNm*1e-9);
+      return (0.02 + 0.25*RH) * (x*x)/(1+x*x); // 可視化用スケール
+    }
+    const bR = beta(650), bG = beta(510), bB = beta(460);
+    const tintR = 1 - 0.15*bR; // 波長依存の僅かな色被り
+    const tintG = 1 - 0.10*bG;
+    const tintB = 1 - 0.05*bB;
+
+    // 湿度→臨界増霧：しきい値を下げ、密度の上限を上げる
+    const baseThresh = 0.62 - 0.25*RH; // RH↑で閾値↓
+    const gain = 2.2 + 2.0*RH;         // RH↑で密度↑
+
+    let p=0;
+    for(let j=0;j<FOG_H;j++){
+      for(let i=0;i<FOG_W;i++){
+        const u = i/FOG_W, v = j/FOG_H;
+        // 地面近くで濃く、上にいくほど薄い鉛直勾配
+        const heightFalloff = Math.pow(1.0 - v, 1.2);
+        // fBm ノイズ（流動）
+        const n = fbm(3.0*(u + ox*0.0015), 3.0*(v + oy*0.0015), 0.0);
+        // 正規化
+        const n01 = Math.max(0, Math.min(1, (n-0.25)/0.75));
+        // 霧密度
+        let dens = Math.max(0, (n01 - baseThresh) * gain) * heightFalloff;
+        // 軽いクランプ
+        if(dens>1) dens=1;
+
+        const a = dens; // 0..1
+        data[p++] = Math.round(255 * tintR);
+        data[p++] = Math.round(255 * tintG);
+        data[p++] = Math.round(255 * tintB);
+        data[p++] = Math.round(255 * a);
+      }
+    }
+    fctx.putImageData(img, 0, 0);
+  }
+
+  function renderFog(){
+    ctx.save();
+    ctx.filter = 'blur(' + (8*DPR) + 'px)';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(fog, 0, 0, W, H);
+    ctx.filter = 'none';
+    ctx.restore();
+  }
+
+  function frame(now){
+    const dt = Math.min(32, now - tPrev); tPrev = now;
+    drawBackground();
+    computeFog(dt);
+    renderFog();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
+
