@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>波 (Wave) - Day 13</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB 0%, #4A90A4 100%);
+            font-family: 'Arial', sans-serif;
+        }
+
+        .container {
+            text-align: center;
+        }
+
+        h1 {
+            color: white;
+            font-size: 48px;
+            margin: 20px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        canvas {
+            border: 2px solid #2c5f6f;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            background: linear-gradient(to top, #001a33 0%, #004080 50%, #0066cc 100%);
+        }
+
+        .info {
+            color: white;
+            margin-top: 20px;
+            font-size: 14px;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🌊 波 (Wave)</h1>
+        <canvas id="waveCanvas" width="600" height="600"></canvas>
+        <div class="info">Ocean wave simulation - Waves interfering from infinite distance</div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('waveCanvas');
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Wave parameters
+        const waves = [];
+        const numWaves = 8;
+        const waveLines = 60; // Number of horizontal lines to draw
+
+        // Initialize waves with random parameters
+        // Waves come from the top (y=0) and move toward bottom (shore)
+        for (let i = 0; i < numWaves; i++) {
+            waves.push({
+                amplitude: Math.random() * 6 + 3,
+                wavelength: Math.random() * 60 + 80,
+                speed: Math.random() * 2 + 1,
+                phase: Math.random() * Math.PI * 2,
+                xOffset: Math.random() * width,
+                // Random wave group timing - waves appear in bursts
+                burstPhase: Math.random() * Math.PI * 4,
+                burstFrequency: Math.random() * 0.02 + 0.01
+            });
+        }
+
+        let time = 0;
+
+        // Calculate depth (darker = deeper, lighter = shallower)
+        function getDepthColor(y) {
+            const depthRatio = y / height;
+            const r = Math.floor(0 + depthRatio * 102);
+            const g = Math.floor(26 + depthRatio * 134);
+            const b = Math.floor(51 + depthRatio * 153);
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        // Calculate wave displacement at given x, y position and time
+        // Waves move in Y direction (from top to bottom) and reflect at shore
+        function calculateWaveDisplacement(x, y, t) {
+            let totalDisplacement = 0;
+
+            // Shore is at bottom (y = height)
+            const distanceFromShore = height - y;
+            const depthFactor = 1 - Math.pow(distanceFromShore / height, 1.5);
+
+            for (let wave of waves) {
+                const k = (2 * Math.PI) / wave.wavelength;
+                const omega = wave.speed;
+
+                // Wave burst envelope - creates groups of waves
+                const burstEnvelope = Math.max(0, Math.sin(wave.burstFrequency * t + wave.burstPhase));
+
+                // Incident wave (coming toward shore)
+                const incidentPhase = k * y - omega * t + wave.phase + (x - wave.xOffset) * 0.005;
+                const incidentWave = wave.amplitude * Math.sin(incidentPhase) * burstEnvelope;
+
+                // Reflected wave (bouncing back from shore)
+                // Reflection strength depends on proximity to shore
+                const reflectionStrength = Math.max(0, 1 - distanceFromShore / (height * 0.3));
+                const reflectedPhase = -k * y - omega * t + wave.phase + (x - wave.xOffset) * 0.005;
+                const reflectedWave = wave.amplitude * Math.sin(reflectedPhase) * burstEnvelope * reflectionStrength * 0.6;
+
+                // Combine incident and reflected waves
+                const combinedWave = incidentWave + reflectedWave;
+
+                // Amplitude increases near shore (shoaling effect)
+                const amplificationFactor = 1 + depthFactor * 1.5;
+
+                totalDisplacement += combinedWave * amplificationFactor;
+            }
+
+            return totalDisplacement;
+        }
+
+        function drawWaves() {
+            // Clear canvas
+            ctx.fillStyle = getDepthColor(0);
+            ctx.fillRect(0, 0, width, height);
+
+            // Draw depth gradient background
+            for (let y = 0; y < height; y += 2) {
+                ctx.fillStyle = getDepthColor(y);
+                ctx.fillRect(0, y, width, 2);
+            }
+
+            // Draw wave lines (horizontal lines showing wave crests)
+            for (let lineIndex = 0; lineIndex < waveLines; lineIndex++) {
+                const baseY = (lineIndex / waveLines) * height;
+
+                ctx.beginPath();
+                ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 + (lineIndex / waveLines) * 0.5})`;
+                ctx.lineWidth = 1.5;
+
+                for (let x = 0; x <= width; x += 2) {
+                    const displacement = calculateWaveDisplacement(x, baseY, time);
+                    const finalX = x + displacement;
+
+                    if (x === 0) {
+                        ctx.moveTo(finalX, baseY);
+                    } else {
+                        ctx.lineTo(finalX, baseY);
+                    }
+                }
+
+                ctx.stroke();
+            }
+
+            // Draw foam at shore (bottom)
+            const foamGradient = ctx.createLinearGradient(0, height - 50, 0, height);
+            foamGradient.addColorStop(0, 'rgba(255, 255, 255, 0)');
+            foamGradient.addColorStop(1, 'rgba(255, 255, 255, 0.6)');
+            ctx.fillStyle = foamGradient;
+            ctx.fillRect(0, height - 50, width, 50);
+
+            time += 1;
+            requestAnimationFrame(drawWaves);
+        }
+
+        // Start animation
+        drawWaves();
+    </script>
+</body>
+</html>
+
