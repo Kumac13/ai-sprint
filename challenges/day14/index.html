@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>最小迷路プレビュー（グリッド＋バックトラッキング）</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif; margin: 16px; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    label { display: inline-flex; align-items: center; gap: 4px; }
+    input, button, select { padding: 6px 8px; font-size: 14px; }
+    canvas { display: block; margin-top: 12px; border: 1px solid #888; background: #fff; }
+    small { opacity: 0.7; }
+  </style>
+</head>
+<body>
+  <div class="row">
+    <label>列（幅）<input id="cols" type="number" min="3" max="199" step="2" value="31"></label>
+    <label>行（高）<input id="rows" type="number" min="3" max="199" step="2" value="21"></label>
+    <label>セルサイズ<input id="cell" type="number" min="4" max="48" step="2" value="20"></label>
+    <label>シード<input id="seed" type="number" step="1" value=""></label>
+    <button id="gen">生成</button>
+    <small>方式: 再帰的バックトラッキング（反復版）／完全迷路</small>
+  </div>
+  <canvas id="cv" width="640" height="480"></canvas>
+
+  <script>
+    // --- 乱数（xorshift32）
+    function RNG(seed) {
+      let s = (seed|0) || 0x9E3779B9 ^ Date.now();
+      return {
+        next() { s ^= (s<<13); s ^= (s>>>17); s ^= (s<<5); return (s>>>0) / 4294967296; },
+        int(n) { return Math.floor(this.next()*n); }
+      };
+    }
+
+    // 方向ビット（NESW）
+    const N = 1, E = 2, S = 4, W = 8;
+    const DX = { [E]:+1, [W]:-1, [N]:0, [S]:0 };
+    const DY = { [E]:0,  [W]:0,  [N]:-1,[S]:+1 };
+    const OPP = { [N]:S, [S]:N, [E]:W, [W]:E };
+
+    function generateMaze(cols, rows, rng) {
+      // 奇数推奨（外周壁を描きやすくするため）
+      const cells = Array.from({length: rows}, ()=> new Uint8Array(cols)); // 通路ビット
+      const visited = Array.from({length: rows}, ()=> new Uint8Array(cols));
+
+      // 開始セル（奇数格子で中央寄せ）
+      const sx = (cols>>1)|0, sy = (rows>>1)|0;
+      const stack = [[sx, sy]]; visited[sy][sx] = 1;
+
+      while (stack.length) {
+        const [x, y] = stack[stack.length-1];
+        const dirs = [N,E,S,W];
+        // 近傍をシャッフル
+        for (let i = dirs.length-1; i>0; i--) { const j = rng.int(i+1); [dirs[i], dirs[j]] = [dirs[j], dirs[i]]; }
+
+        let carved = false;
+        for (const d of dirs) {
+          const nx = x + DX[d], ny = y + DY[d];
+          if (nx<0||ny<0||nx>=cols||ny>=rows) continue;
+          if (visited[ny][nx]) continue;
+          // 壁を壊す（双方向）
+          cells[y][x]  |= d;
+          cells[ny][nx]|= OPP[d];
+          visited[ny][nx] = 1;
+          stack.push([nx, ny]);
+          carved = true;
+          break;
+        }
+        if (!carved) stack.pop();
+      }
+      return cells;
+    }
+
+    function drawMaze(canvas, cells, cellSize, start, goal, player, hideWalls = false) {
+      const ctx = canvas.getContext('2d');
+      const rows = cells.length, cols = cells[0].length;
+      const headerHeight = 30; // 座標表示用のヘッダー高さ
+      canvas.width = cols * cellSize + 1;
+      canvas.height = rows * cellSize + 1 + headerHeight;
+
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#f0f0f0';
+      ctx.fillRect(0, 0, canvas.width, headerHeight);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, headerHeight, canvas.width, canvas.height - headerHeight);
+
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'square';
+
+      // 内部と外周の壁を一括描画（外周はセル側の壁で表現）
+      ctx.save();
+      ctx.translate(0, headerHeight); // 迷路をヘッダー分下にずらす
+      for (let y=0; y<rows; y++) {
+        for (let x=0; x<cols; x++) {
+          // 壁を隠す場合、プレイヤーの位置だけは表示
+          if (hideWalls && player && !(x === player[0] && y === player[1])) {
+            continue;
+          }
+
+          const bit = cells[y][x];
+          const px = x*cellSize, py = y*cellSize;
+          // 北壁
+          if (!(bit & N)) { ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px+cellSize, py); ctx.stroke(); }
+          // 西壁
+          if (!(bit & W)) { ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px, py+cellSize); ctx.stroke(); }
+          // 東壁
+          if (!(bit & E)) { ctx.beginPath(); ctx.moveTo(px+cellSize, py); ctx.lineTo(px+cellSize, py+cellSize); ctx.stroke(); }
+          // 南壁
+          if (!(bit & S)) { ctx.beginPath(); ctx.moveTo(px, py+cellSize); ctx.lineTo(px+cellSize, py+cellSize); ctx.stroke(); }
+        }
+      }
+      ctx.restore();
+
+      // スタート／ゴールのマーカー
+      const drawDot = (cx, cy, r, color) => {
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(cx, cy, r, 0, Math.PI*2);
+        ctx.fill();
+      };
+      ctx.save();
+      ctx.translate(0, headerHeight);
+      const [sx, sy] = start, [gx, gy] = goal;
+      drawDot(sx*cellSize + cellSize/2, sy*cellSize + cellSize/2, Math.max(3, cellSize*0.25), '#2e7d32'); // start: green
+      drawDot(gx*cellSize + cellSize/2, gy*cellSize + cellSize/2, Math.max(3, cellSize*0.25), '#c62828'); // goal: red
+
+      // プレイヤーの駒
+      if (player) {
+        const [px, py] = player;
+        drawDot(px*cellSize + cellSize/2, py*cellSize + cellSize/2, Math.max(4, cellSize*0.35), '#1976d2'); // player: blue
+      }
+      ctx.restore();
+
+      // 座標を表示（ヘッダー部分に）
+      if (player) {
+        const [px, py] = player;
+        ctx.fillStyle = '#000000';
+        ctx.font = 'bold 16px monospace';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`座標: (${px}, ${py})`, 10, headerHeight / 2);
+      }
+    }
+
+    let gameState = null;
+    let hideInterval = null;
+
+    // 音を鳴らす関数
+    function playBeep() {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      oscillator.frequency.value = 400;
+      oscillator.type = 'square';
+
+      gainNode.gain.value = 0.1;
+
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 0.1);
+    }
+
+    function regenerate() {
+      const cols = Math.max(3, (parseInt(document.getElementById('cols').value)||31) | 1); // 奇数化
+      const rows = Math.max(3, (parseInt(document.getElementById('rows').value)||21) | 1);
+      const cell = Math.max(4, parseInt(document.getElementById('cell').value)||20);
+      const seedInput = document.getElementById('seed');
+      let seed = parseInt(seedInput.value);
+      if (!Number.isInteger(seed)) {
+        // 適当なシードを自動挿入（再現性のため表示に反映）
+        seed = (crypto.getRandomValues(new Uint32Array(1))[0]>>>0);
+        seedInput.value = seed;
+      }
+      const rng = RNG(seed);
+      const cells = generateMaze(cols, rows, rng);
+      // 入口と出口：左端と右端の中央に開口
+      const sy0 = (rows>>1)|0, gy0 = (rows>>1)|0;
+      const sx0 = 0, gx0 = cols-1;
+      // 開口（外周側の壁ビットを落とす）
+      cells[sy0][sx0] |= W; // 左外へ
+      cells[gy0][gx0] |= E; // 右外へ
+      const start = [sx0, sy0];
+      const goal  = [gx0, gy0];
+
+      gameState = { cells, cellSize: cell, start, goal, player: [...start], cols, rows };
+      drawMaze(document.getElementById('cv'), cells, cell, start, goal, gameState.player);
+
+      // 迷路を時々隠すタイマー
+      if (hideInterval) clearInterval(hideInterval);
+      hideInterval = setInterval(() => {
+        if (gameState && Math.random() < 0.3) { // 30%の確率で隠す
+          const hideWalls = true;
+          drawMaze(document.getElementById('cv'), gameState.cells, gameState.cellSize,
+                   gameState.start, gameState.goal, gameState.player, hideWalls);
+          // 3秒後に再表示
+          setTimeout(() => {
+            if (gameState) {
+              drawMaze(document.getElementById('cv'), gameState.cells, gameState.cellSize,
+                       gameState.start, gameState.goal, gameState.player);
+            }
+          }, 3000);
+        }
+      }, 2000); // 2秒ごとにチェック
+    }
+
+    function movePlayer(dx, dy) {
+      if (!gameState) return;
+      const { cells, player, cols, rows, goal } = gameState;
+      const [px, py] = player;
+      const nx = px + dx, ny = py + dy;
+
+      // 範囲チェック
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) return;
+
+      // 壁チェック
+      const bit = cells[py][px];
+      let canMove = false;
+      if (dx === 1 && (bit & E)) canMove = true;  // 東
+      if (dx === -1 && (bit & W)) canMove = true; // 西
+      if (dy === -1 && (bit & N)) canMove = true; // 北
+      if (dy === 1 && (bit & S)) canMove = true;  // 南
+
+      if (canMove) {
+        gameState.player = [nx, ny];
+        drawMaze(document.getElementById('cv'), gameState.cells, gameState.cellSize,
+                 gameState.start, gameState.goal, gameState.player);
+
+        // ゴール判定
+        if (nx === goal[0] && ny === goal[1]) {
+          setTimeout(() => alert('ゴール！'), 100);
+        }
+      } else {
+        // 行き止まり（移動できない）ときに音を鳴らす
+        playBeep();
+      }
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (!gameState) return;
+      switch(e.key) {
+        case 'ArrowUp': movePlayer(0, -1); e.preventDefault(); break;
+        case 'ArrowDown': movePlayer(0, 1); e.preventDefault(); break;
+        case 'ArrowLeft': movePlayer(-1, 0); e.preventDefault(); break;
+        case 'ArrowRight': movePlayer(1, 0); e.preventDefault(); break;
+      }
+    });
+
+    document.getElementById('gen').addEventListener('click', regenerate);
+    // 初期描画
+    regenerate();
+  </script>
+</body>
+</html>
