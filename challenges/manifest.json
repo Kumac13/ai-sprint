@@ -1,6 +1,6 @@
 {
   "updated": "2025-10-19T08:05:00.000Z",
-  "total": 14,
+  "total": 15,
   "days": [
     {
       "number": 1,
@@ -109,9 +109,17 @@
       "number": 14,
       "folder": "day14",
       "url": "day14/",
-      "title": "",
-      "theme": "",
+      "title": "隠れる迷路",
+      "theme": "迷路",
       "created": "2025-10-30T10:26:00.000Z"
+    },
+    {
+      "number": 15,
+      "folder": "day15",
+      "url": "day15/",
+      "title": "泡のシミュレーション",
+      "theme": "泡",
+      "created": "2025-10-31T10:26:00.000Z"
     }
   ]
 }

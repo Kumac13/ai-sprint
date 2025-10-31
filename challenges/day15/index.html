@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>泡（膜のみ・破裂と残光）</title>
+<style>
+  html, body { margin:0; height:100%; background:#000; }
+  canvas { display:block; width:100%; height:100%; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script type="module">
+import * as THREE from "https://unpkg.com/three@0.165.0/build/three.module.js";
+
+const canvas = document.getElementById("c");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias:true, alpha:true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+camera.position.set(0,0,5);
+
+// --- shaders ---
+const vshader = /* glsl */`
+varying vec3 vNormal;
+varying vec3 vViewDir;
+varying vec3 vWorldPos;
+void main(){
+  vNormal = normalize(normalMatrix * normal);
+  vec4 wp = modelMatrix * vec4(position,1.0);
+  vWorldPos = wp.xyz;
+  vec4 mv = modelViewMatrix * vec4(position,1.0);
+  vViewDir = normalize(-mv.xyz);
+  gl_Position = projectionMatrix * mv;
+}
+`;
+
+// 低コストfbmノイズ（膜上の拡散用）
+const fshader = /* glsl */`
+precision highp float;
+uniform float time;
+uniform vec3  ruptureCenter;   // 球面上の中心（単位ベクトル）
+uniform float ruptureRadius;   // 角度半径（ラジアン）
+uniform float afterRadius;     // 残光リングの角度半径
+uniform float afterGlow;       // 残光強度(0→1→0)
+varying vec3 vNormal;
+varying vec3 vViewDir;
+
+// hash / noise / fbm
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1,311.7))) * 43758.5453123); }
+float noise(in vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  float a = hash(i);
+  float b = hash(i + vec2(1.0,0.0));
+  float c = hash(i + vec2(0.0,1.0));
+  float d = hash(i + vec2(1.0,1.0));
+  vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+float fbm(vec2 p){
+  float s = 0.0, a = 0.5;
+  for(int i=0;i<4;i++){
+    s += a * noise(p);
+    p = mat2(1.6,1.2,-1.2,1.6) * p + 3.1;
+    a *= 0.5;
+  }
+  return s;
+}
+
+void main(){
+  vec3 N = normalize(vNormal);
+  vec3 V = normalize(vViewDir);
+
+  // フレネルで縁を強調（球体の存在感）
+  float fres = pow(1.0 - clamp(dot(N,V), 0.0, 1.0), 3.0);
+
+  // 薄膜干渉風スペクトル（角度 + 時間）
+  float ang = clamp(dot(N,V), 0.0, 1.0);
+  float w = ang*6.0 - time*1.5;
+  vec3 film = 0.5 + 0.5 * cos(vec3(w, w+2.094, w+4.188)); // 120°位相差
+
+  // 膜上のランダム拡散光（タンジェント方向に流す）
+  // 球面座標に変換して擬似UV（視差破綻は薄い膜なので許容）
+  float u = atan(N.z, N.x); // [-pi,pi]
+  float v = acos(clamp(N.y, -1.0, 1.0)); // [0,pi]
+  vec2 uv = vec2(u, v);
+  // 接線方向の流れ
+  vec2 flow = uv + vec2(time*0.4, sin(time*0.3)*0.2);
+  float speckle = fbm(flow*3.0);
+  speckle = smoothstep(0.45, 0.75, speckle);
+
+  // 破裂の消失フロント（角距離）
+  float theta = acos(clamp(dot(N, normalize(ruptureCenter)), -1.0, 1.0));
+  float edgeW = 0.02; // フロント幅
+  // 破裂で消えた領域（完全α=0）
+  float intact = 1.0 - smoothstep(ruptureRadius-0.0001, ruptureRadius+0.0001, theta);
+
+  // 破裂フロント縁の強調（膜が裂けるリング）
+  float crack = 1.0 - smoothstep(ruptureRadius+edgeW, ruptureRadius, theta);
+  crack *= smoothstep(ruptureRadius-edgeW, ruptureRadius, theta);
+
+  // 残光リング（afterimage）
+  float ag = 1.0 - smoothstep(afterRadius+edgeW, afterRadius, theta);
+  ag *= smoothstep(afterRadius-edgeW, afterRadius, theta);
+  ag *= afterGlow;
+
+  // 膜の基礎可視化（全体のごく薄い色）＋フレネル
+  float baseA = 0.06 + 0.12*fres; // 球全体の“存在”が分かる最低限のα
+  vec3  baseC = mix(vec3(0.06,0.08,0.12), film*0.6, 0.6);
+
+  // ランダム拡散・干渉色・フレネルを合成（まだ破裂前提）
+  float membraneA = baseA + 0.25*fres*speckle;
+  vec3  membraneC = baseC + film*0.25*speckle + vec3(0.5)*fres*0.12;
+
+  // 破裂フロントの輝き
+  vec3 crackC = film * 1.4;
+  float crackA = crack * (0.6 + 0.6*fres);
+
+  // 残光リング
+  vec3 afterC = film * 1.2;
+  float afterA = ag * (0.45 + 0.3*fres);
+
+  // 膜の消滅（破裂フロントより内側は完全に消す）
+  membraneA *= step(ruptureRadius, theta); // theta<ruptureRadius → 0
+
+  // 合成
+  vec3 col = membraneC * membraneA + crackC * crackA + afterC * afterA;
+  float alpha = membraneA + crackA + afterA;
+
+  gl_FragColor = vec4(col, alpha);
+}
+`;
+
+// geometry & material
+const geom = new THREE.SphereGeometry(1.0, 192, 192);
+const mat = new THREE.ShaderMaterial({
+  vertexShader: vshader,
+  fragmentShader: fshader,
+  uniforms: {
+    time:           { value: 0 },
+    ruptureCenter:  { value: new THREE.Vector3(0,1,0) },
+    ruptureRadius:  { value: 0.0 },
+    afterRadius:    { value: 0.0 },
+    afterGlow:      { value: 0.0 },
+  },
+  transparent: true,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  side: THREE.FrontSide,
+});
+const sphere = new THREE.Mesh(geom, mat);
+scene.add(sphere);
+
+// 背景を薄い星霧っぽく（3D感の助け）
+const bgGeom = new THREE.SphereGeometry(30, 32, 32);
+const bgMat  = new THREE.MeshBasicMaterial({ color: 0x02040a, side: THREE.BackSide });
+scene.add(new THREE.Mesh(bgGeom, bgMat));
+
+// 破裂サイクル制御（膨張なし）
+// 0..Tstable: 安定 → Tburst: 一気に裂け目が走る → Tafter: 残光 → リセット
+const Tstable = 3.0;
+const Tburst  = 0.45;
+const Tafter  = 0.6;
+
+let t0 = performance.now()*0.001;
+let phase = "stable";
+let burstStart = t0;
+let afterStart = t0;
+let lastAfterRadius = 0.0;
+
+function newCenter(){
+  // 球面上一様な方向をランダムに
+  const u = Math.random();
+  const v = Math.random();
+  const theta = Math.acos(1.0 - 2.0*u);
+  const phi = 2.0*Math.PI*v;
+  return new THREE.Vector3(
+    Math.sin(theta)*Math.cos(phi),
+    Math.cos(theta),
+    Math.sin(theta)*Math.sin(phi)
+  ).normalize();
+}
+mat.uniforms.ruptureCenter.value = newCenter();
+
+function loop(){
+  const t = performance.now()*0.001;
+  const dt = t - t0;
+  t0 = t;
+  mat.uniforms.time.value = t;
+
+  if (phase === "stable"){
+    mat.uniforms.ruptureRadius.value = 0.0;
+    mat.uniforms.afterGlow.value = 0.0;
+    if (t - burstStart > Tstable){
+      // 破裂開始
+      phase = "burst";
+      burstStart = t;
+      mat.uniforms.ruptureCenter.value = newCenter();
+    }
+  } else if (phase === "burst"){
+    const p = (t - burstStart)/Tburst; // 0→1
+    const r = p * 3.14159;            // フロントが球全体を駆け抜ける
+    mat.uniforms.ruptureRadius.value = r;
+    // 終了で残光へ
+    if (p >= 1.0){
+      phase = "after";
+      afterStart = t;
+      lastAfterRadius = r;
+      mat.uniforms.afterRadius.value = lastAfterRadius;
+      mat.uniforms.afterGlow.value = 1.0;
+    }
+  } else { // after
+    const p = (t - afterStart)/Tafter; // 0→1
+    // 残光リングのフェード
+    mat.uniforms.afterGlow.value = Math.max(1.0 - p, 0.0);
+    // 残光リングは少し外へ流れる印象（ごくわずか）
+    mat.uniforms.afterRadius.value = lastAfterRadius + p*0.08;
+    if (p >= 1.0){
+      // 次の安定へ
+      phase = "stable";
+      burstStart = t;
+      mat.uniforms.ruptureRadius.value = 0.0;
+      mat.uniforms.afterGlow.value = 0.0;
+    }
+  }
+
+  // 視認性のためにわずかに自転（3D感のみ）
+  sphere.rotation.y += dt*0.3;
+  sphere.rotation.x += Math.sin(t*0.2)*dt*0.15;
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(loop);
+}
+loop();
+
+addEventListener("resize", ()=>{
+  camera.aspect = innerWidth/innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
+
